@@ -127,9 +127,9 @@ export function buildFileName(title) {
   return name;
 }
 
-export function categoryFor(meta) {
-  if (meta && Array.isArray(meta.categories) && meta.categories.length > 0) {
-    return meta.categories[0].name || "Uncategorized";
+export function folderFor(meta) {
+  if (meta && meta.store) {
+    return meta.store;
   }
   return "Uncategorized";
 }

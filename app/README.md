@@ -1,18 +1,18 @@
 # Dood Library（资料库 Web 应用）
 
-从 Excel 表格生成资源索引，按 spankinglibrary.com 的 ID 抓取截图、价格、分类和 Store，并把 DoodStream 链接解析成直链发送给 Gopeed。下载时使用站点标题作为文件名，并按第一个分类自动建立子文件夹。
+从 Excel 表格生成资源索引，按 spankinglibrary.com 的 ID 抓取截图、价格、分类和 Store，并把 DoodStream 链接解析成直链发送给 Gopeed。下载时使用站点标题作为文件名，按 **Store** 自动建立子文件夹，**Categories 作为标签**展示和筛选。
 
 ## 功能
 
 - 读取 `all-videos-and-links.xlsx`（ID、名称、状态、DoodStream URL），生成 `/data/items.json`
 - 按 ID 抓取 `https://www.spankinglibrary.com/clipdetails.php?id=<ID>`：
   - 截图（og:image + 多张预览图）
-  - 价格、Store、分类、分辨率、时长、简介
-- 卡片式浏览：搜索、状态筛选、分类筛选、分页
+  - 价格、Store、分类标签、分辨率、时长、简介
+- 卡片式浏览：搜索、状态筛选、标签筛选、分页
 - 元数据懒加载 + 磁盘缓存；支持后台批量采集
 - 一键发送到 Gopeed：
   - 文件名：站点标题 + `.mp4`
-  - 目录：`<下载根目录>/<第一个分类>`，例如 `/app/Downloads/M-F Spankings`
+  - 目录：`<下载根目录>/<Store>`，例如 `/app/Downloads/NORTHERN SPANKING FILMS`
   - 自动携带 CDN 需要的 `Referer` / `User-Agent`
 - 设置页可测试 Gopeed 连接、调整抓取间隔和下载连接数
 
@@ -88,9 +88,9 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 - 卡片进入可视区域后才请求站点元数据，避免一次打 4 万次请求；结果写入 `/data/meta.json`。
 - 点 **下载到 Gopeed**：服务端会解析 Dood 链接，再调用 Gopeed 创建任务。
   - 文件名：`Late For Assembly - Full MP4.mp4`
-  - 目录：`/app/Downloads/M-F Spankings`
+  - 目录：`/app/Downloads/NORTHERN SPANKING FILMS`
   - 路径是 **Gopeed 容器内路径**，不是宿主机路径。
-- 分类筛选只统计已采集的条目；未采集的条目在滚动时自动补全。
+- 标签筛选只统计已采集的条目；未采集的条目在滚动时自动补全。
 
 ## 后台采集
 
@@ -121,7 +121,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 - `GET/POST /api/settings`
 - `POST /api/settings/test`
 - `POST /api/prefetch/start|stop`、`GET /api/prefetch/status`
-- `GET /api/categories`、`GET /api/stats`、`GET /api/health`
+- `GET /api/categories`（返回已采集的标签及数量）、`GET /api/stats`、`GET /api/health`
 
 ## 注意
 

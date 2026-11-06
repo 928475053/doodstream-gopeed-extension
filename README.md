@@ -1,6 +1,6 @@
 # DoodStream Downloader for Gopeed
 
-> **新方案（推荐）**：不再依赖 Gopeed 插件。`app/` 里是一个资料库 Web 应用：从 Excel 生成索引，抓取 spankinglibrary.com 的截图/价格/分类，点击按钮直接发送到 Gopeed，并按分类建立下载子目录。详见 [app/README.md](app/README.md)。
+> **新方案（推荐）**：不再依赖 Gopeed 插件。`app/` 里是一个资料库 Web 应用：从 Excel 生成索引，抓取 spankinglibrary.com 的截图/价格/分类标签，点击按钮直接发送到 Gopeed，并按 Store 建立下载子目录。详见 [app/README.md](app/README.md)。
 
 以下为之前的 Gopeed 扩展与 resolver 说明（保留备用）。
 

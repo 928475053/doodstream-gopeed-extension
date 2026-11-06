@@ -194,7 +194,7 @@ async function loadCategories() {
     const select = $("#category");
     const current = select.value;
     select.innerHTML =
-      `<option value="">全部分类（已采集）</option>` +
+      `<option value="">全部标签（已采集）</option>` +
       data.categories
         .map(
           (category) =>

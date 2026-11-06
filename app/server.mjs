@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildFileName,
-  categoryFor,
+  folderFor,
   joinDownloadPath,
   loadItems,
   loadMeta,
@@ -362,8 +362,8 @@ async function handleApi(req, res, url) {
       const title =
         (metaData && metaData.title) || item.title || item.name || String(libId);
       const fileName = buildFileName(title);
-      const category = categoryFor(metaData);
-      const downloadPath = joinDownloadPath(settings.downloadRoot, category);
+      const folder = folderFor(metaData);
+      const downloadPath = joinDownloadPath(settings.downloadRoot, folder);
       const taskId = await createTask(settings, {
         url: resolved.url,
         header: {
@@ -378,7 +378,7 @@ async function handleApi(req, res, url) {
         taskId,
         name: fileName,
         path: downloadPath,
-        category,
+        folder,
         warning: metaWarning,
       });
     } catch (err) {
