@@ -55,6 +55,7 @@ export function parseExcel(filePath) {
     if (!dood) continue;
     const name = (cells.B || "").trim();
     const status = (cells.C || "").trim();
+    if (status !== "ACTIVE") continue;
     const match = name.match(/^(\d+)\s*[|｜]\s*(.+)$/);
     const libId = match ? Number(match[1]) : null;
     const title = match ? match[2].trim() : name;

@@ -17,11 +17,6 @@
     </div>
     <div class="searchbar">
       <input id="search" type="search" placeholder="搜索标题 / ID / 片名，例如 9272" autocomplete="off" />
-      <select id="status">
-        <option value="">全部状态</option>
-        <option value="ACTIVE">ACTIVE</option>
-        <option value="DRAFT">DRAFT</option>
-      </select>
       <button id="refresh" class="ghost" title="刷新">刷新</button>
       <button id="open-settings" class="ghost">设置</button>
     </div>
@@ -99,6 +94,7 @@
           <div class="prefetch-actions">
             <button id="prefetch-start" type="button" class="ghost">开始采集</button>
             <button id="prefetch-start-refresh" type="button" class="ghost">刷新全部</button>
+            <button id="prefetch-retry" type="button" class="ghost" disabled>重试失败</button>
             <button id="prefetch-stop" type="button" class="ghost">停止</button>
           </div>
         </div>

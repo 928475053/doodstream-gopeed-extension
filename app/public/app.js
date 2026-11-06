@@ -2,7 +2,6 @@ const state = {
   page: 1,
   pageSize: 24,
   q: "",
-  status: "",
   doodOnly: true,
   category: "",
   total: 0,
@@ -180,6 +179,7 @@ async function loadStats() {
     $("#stats").innerHTML = `
       <span><b>${data.withDood.toLocaleString()}</b> 条可下载记录</span>
       <span><b>${data.metaCached.toLocaleString()}</b> 条已采集</span>
+      ${data.failures ? `<span><b>${data.failures.toLocaleString()}</b> 条采集失败</span>` : ""}
     `;
     return data;
   } catch {
@@ -219,7 +219,6 @@ async function load() {
     doodOnly: state.doodOnly ? "1" : "0",
   });
   if (state.q) params.set("q", state.q);
-  if (state.status) params.set("status", state.status);
   if (state.category) params.set("category", state.category);
 
   try {
@@ -303,12 +302,6 @@ $("#search").addEventListener("input", (event) => {
   }, 350);
 });
 
-$("#status").addEventListener("change", (event) => {
-  state.status = event.target.value;
-  state.page = 1;
-  load();
-});
-
 $("#dood-only").addEventListener("change", (event) => {
   state.doodOnly = event.target.checked;
   state.page = 1;
@@ -364,21 +357,32 @@ async function fillSettings() {
 function renderPrefetch(status) {
   const bar = $("#prefetch-bar");
   const text = $("#prefetch-status");
+  const retry = $("#prefetch-retry");
+  const failed = Number(status && status.failed) || 0;
+  if (retry) {
+    retry.disabled = !status || status.running || failed === 0;
+    retry.textContent = failed > 0 ? `重试失败 (${failed})` : "重试失败";
+  }
   if (!status || (!status.running && !status.total)) {
     bar.style.width = "0%";
-    text.textContent = "未开始";
+    text.textContent = failed ? `未开始 · 累计失败 ${failed}` : "未开始";
     return;
   }
   const percent = status.total
     ? Math.min(100, Math.round((status.done / status.total) * 100))
     : 0;
   bar.style.width = percent + "%";
+  const mode =
+    status.mode === "retry" ? "重试" : status.mode === "refresh" ? "刷新" : "采集";
   const current = status.current
-    ? `当前 #${status.current.libId} ${status.current.title}`
+    ? ` · 当前 #${status.current.libId} ${status.current.title}`
     : "";
-  text.textContent = `${status.running ? "采集中" : "已停止"} · ${status.done}/${
+  const last = status.lastError
+    ? ` · 最近失败 #${status.lastError.libId} ${String(status.lastError.error).slice(0, 80)}`
+    : "";
+  text.textContent = `${status.running ? mode + "中" : "已停止"} · ${status.done}/${
     status.total
-  }（失败 ${status.errors}）${current ? " · " + current : ""}`;
+  }（本次失败 ${status.errors}，累计 ${failed}）${current}${last}`;
 }
 
 async function pollPrefetch() {
@@ -388,6 +392,8 @@ async function pollPrefetch() {
     if (status.running && dialog.open) {
       clearTimeout(prefetchTimer);
       prefetchTimer = setTimeout(pollPrefetch, 2000);
+    } else if (!status.running) {
+      loadStats();
     }
   } catch {
     // ignore
@@ -436,7 +442,7 @@ $("#test-gopeed").addEventListener("click", async () => {
   }
 });
 
-async function prefetchAction(path, options) {
+async function prefetchAction(path, options, zeroMsg, okMsg) {
   try {
     const status = await api(path, options);
     renderPrefetch(status);
@@ -444,34 +450,64 @@ async function prefetchAction(path, options) {
       clearTimeout(prefetchTimer);
       prefetchTimer = setTimeout(pollPrefetch, 1500);
     }
-    toast(status.running ? "后台采集已启动" : "后台采集已停止");
+    if (status.total === 0 && !status.running) {
+      toast(zeroMsg || "没有需要处理的条目");
+    } else {
+      toast(okMsg || "任务已提交");
+    }
+    if (!status.running) loadStats();
   } catch (err) {
     toast(err.message, true);
   }
 }
 
 $("#prefetch-start").addEventListener("click", () =>
-  prefetchAction("/api/prefetch/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  })
+  prefetchAction(
+    "/api/prefetch/start",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    },
+    "没有需要采集的条目",
+    "后台采集已启动"
+  )
 );
 
 $("#prefetch-start-refresh").addEventListener("click", () =>
-  prefetchAction("/api/prefetch/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh: true }),
-  })
+  prefetchAction(
+    "/api/prefetch/start",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh: true }),
+    },
+    "没有需要刷新的条目",
+    "刷新任务已启动"
+  )
+);
+
+$("#prefetch-retry").addEventListener("click", () =>
+  prefetchAction(
+    "/api/prefetch/retry",
+    { method: "POST" },
+    "没有可重试的失败条目",
+    "失败重试已启动"
+  )
 );
 
 $("#prefetch-stop").addEventListener("click", () =>
-  prefetchAction("/api/prefetch/stop", { method: "POST" })
+  prefetchAction(
+    "/api/prefetch/stop",
+    { method: "POST" },
+    "没有正在运行的任务",
+    "正在停止…"
+  )
 );
 
 dialog.addEventListener("close", () => {
   clearTimeout(prefetchTimer);
+  loadStats();
 });
 
 loadStats();

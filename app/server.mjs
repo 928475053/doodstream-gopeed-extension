@@ -4,14 +4,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  addFailure,
   buildFileName,
+  failureCount,
+  failureIds,
   folderFor,
+  getMeta,
+  idsByTag,
+  initMetaStore,
   joinDownloadPath,
+  lastFailure,
   loadItems,
-  loadMeta,
   loadSettings,
-  saveMeta,
+  metaCount,
+  metaIds,
+  missingImageRows,
   saveSettings,
+  setMeta,
+  setMetaImage,
+  tagCounts,
 } from "./lib/store.mjs";
 import { fetchClip } from "./lib/library.mjs";
 import { createTask, getInfo } from "./lib/gopeed.mjs";
@@ -30,6 +41,7 @@ const APP_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(APP_ROOT, "public");
 const PAGE_SIZE_MAX = 100;
 
+initMetaStore();
 const items = loadItems();
 const itemByLibId = new Map();
 for (const item of items) {
@@ -37,32 +49,12 @@ for (const item of items) {
     itemByLibId.set(item.libId, item);
   }
 }
-const meta = loadMeta();
 let settings = loadSettings();
-try {
-  if (initImageCache(meta)) {
-    saveMeta(meta);
-  }
-} catch (err) {
-  console.error("[dood] init image cache failed:", err.message);
-}
+initImageCache();
 
 console.log(
-  `[dood] loaded ${items.length} items, ${Object.keys(meta).length} cached metadata`
+  `[dood] loaded ${items.length} items, ${metaCount()} metadata, ${failureCount()} failures`
 );
-
-let metaSaveTimer = null;
-function scheduleMetaSave() {
-  if (metaSaveTimer) return;
-  metaSaveTimer = setTimeout(() => {
-    metaSaveTimer = null;
-    try {
-      saveMeta(meta);
-    } catch (err) {
-      console.error("[dood] save metadata failed:", err.message);
-    }
-  }, 1500);
-}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -72,12 +64,15 @@ let pumping = false;
 let lastFetchAt = 0;
 
 function metaFor(libId) {
-  return meta[String(libId)] || null;
+  return getMeta(libId);
 }
 
 function enqueueMeta(libId, force = false) {
   const key = String(libId);
-  if (!force && meta[key]) return Promise.resolve(meta[key]);
+  if (!force) {
+    const cached = getMeta(libId);
+    if (cached) return Promise.resolve(cached);
+  }
   if (metaInflight.has(key)) return metaInflight.get(key);
 
   const promise = new Promise((resolve, reject) => {
@@ -117,10 +112,10 @@ async function pumpMetaQueue() {
             );
           }
         }
-        meta[job.key] = data;
-        scheduleMetaSave();
+        setMeta(job.id, data);
         job.resolve(data);
       } catch (err) {
+        addFailure(job.id, err.message || String(err));
         job.reject(err);
       }
     }
@@ -137,40 +132,41 @@ const prefetch = {
   errors: 0,
   current: null,
   startedAt: null,
+  mode: "",
 };
 
 function prefetchStatus() {
+  const last = lastFailure();
   return {
     running: prefetch.running,
     total: prefetch.total,
     done: prefetch.done,
     errors: prefetch.errors,
+    failed: failureCount(),
+    lastError: last ? { libId: last.lib_id, error: last.error } : null,
     current: prefetch.current,
     startedAt: prefetch.startedAt,
+    mode: prefetch.mode,
   };
 }
 
-async function startPrefetch(refresh) {
+async function runPrefetch(targets, mode) {
   if (prefetch.running) return prefetchStatus();
-  const targets = items.filter(
-    (item) =>
-      item.libId &&
-      item.dood &&
-      (refresh || !meta[String(item.libId)])
-  );
   prefetch.running = true;
   prefetch.stopRequested = false;
   prefetch.total = targets.length;
   prefetch.done = 0;
   prefetch.errors = 0;
   prefetch.startedAt = Date.now();
+  prefetch.mode = mode;
 
   (async () => {
+    const force = mode === "refresh";
     for (const item of targets) {
       if (prefetch.stopRequested) break;
       prefetch.current = { libId: item.libId, title: item.title };
       try {
-        await enqueueMeta(item.libId);
+        await enqueueMeta(item.libId, force);
         prefetch.done++;
       } catch {
         prefetch.errors++;
@@ -182,6 +178,25 @@ async function startPrefetch(refresh) {
   })();
 
   return prefetchStatus();
+}
+
+async function startPrefetch(options = {}) {
+  if (prefetch.running) return prefetchStatus();
+  if (options.retry) {
+    const ids = new Set(failureIds());
+    const targets = items.filter(
+      (item) => item.libId && item.dood && ids.has(item.libId)
+    );
+    return runPrefetch(targets, "retry");
+  }
+  const existing = new Set(metaIds());
+  const targets = items.filter(
+    (item) =>
+      item.libId &&
+      item.dood &&
+      (options.refresh || !existing.has(item.libId))
+  );
+  return runPrefetch(targets, options.refresh ? "refresh" : "missing");
 }
 
 function sendJson(res, status, data) {
@@ -214,7 +229,7 @@ function readBody(req) {
 }
 
 function itemView(item) {
-  const m = item.libId ? metaFor(item.libId) : null;
+  const m = item.libId ? getMeta(item.libId) : null;
   return {
     key: item.key,
     libId: item.libId,
@@ -242,13 +257,11 @@ function itemView(item) {
 
 function filterItems(searchParams) {
   const q = String(searchParams.get("q") || "").trim().toLowerCase();
-  const status = String(searchParams.get("status") || "").trim();
   const category = String(searchParams.get("category") || "").trim();
   const doodOnly = searchParams.get("doodOnly") !== "0";
 
   let result = items;
   if (doodOnly) result = result.filter((item) => item.dood);
-  if (status) result = result.filter((item) => item.status === status);
   if (q) {
     result = result.filter(
       (item) =>
@@ -258,30 +271,14 @@ function filterItems(searchParams) {
     );
   }
   if (category) {
-    result = result.filter((item) => {
-      const m = item.libId ? metaFor(item.libId) : null;
-      return !!(
-        m &&
-        Array.isArray(m.categories) &&
-        m.categories.some((entry) => entry.name === category)
-      );
-    });
+    const ids = new Set(idsByTag(category));
+    result = result.filter((item) => ids.has(item.libId));
   }
   return result;
 }
 
 function categoryList() {
-  const counts = new Map();
-  for (const value of Object.values(meta)) {
-    if (!value || !Array.isArray(value.categories)) continue;
-    for (const category of value.categories) {
-      if (!category || !category.name) continue;
-      counts.set(category.name, (counts.get(category.name) || 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return tagCounts().map((row) => ({ name: row.name, count: row.count }));
 }
 
 async function handleApi(req, res, url) {
@@ -306,7 +303,8 @@ async function handleApi(req, res, url) {
     sendJson(res, 200, {
       items: items.length,
       withDood: items.filter((item) => item.dood).length,
-      metaCached: Object.keys(meta).length,
+      metaCached: metaCount(),
+      failures: failureCount(),
       prefetch: prefetchStatus(),
       settings: {
         gopeedUrl: settings.gopeedUrl,
@@ -383,10 +381,7 @@ async function handleApi(req, res, url) {
       }
       try {
         const cachedImage = await cacheImage(libId, metaData.image);
-        metaData.imageFile = cachedImage.file;
-        metaData.imageMime = cachedImage.mime;
-        metaData.imageLocal = "/api/image/" + libId;
-        scheduleMetaSave();
+        setMetaImage(libId, cachedImage.file, cachedImage.mime);
         file = cachedImage.file;
       } catch (err) {
         let allowed = false;
@@ -417,7 +412,7 @@ async function handleApi(req, res, url) {
         "Access-Control-Allow-Origin": "*",
       });
       fs.createReadStream(fullPath).pipe(res);
-    } catch (err) {
+    } catch {
       sendJson(res, 500, { error: "读取图片失败" });
     }
     return;
@@ -508,8 +503,16 @@ async function handleApi(req, res, url) {
 
   if (pathname === "/api/prefetch/start" && req.method === "POST") {
     const body = await readBody(req).catch(() => "{}");
-    const input = body ? JSON.parse(body || "{}") : {};
-    sendJson(res, 200, await startPrefetch(!!input.refresh));
+    let input = {};
+    try {
+      input = JSON.parse(body || "{}");
+    } catch {}
+    sendJson(res, 200, await startPrefetch({ refresh: !!input.refresh }));
+    return;
+  }
+
+  if (pathname === "/api/prefetch/retry" && req.method === "POST") {
+    sendJson(res, 200, await startPrefetch({ retry: true }));
     return;
   }
 
@@ -533,7 +536,7 @@ const MIME = {
 };
 
 function serveStatic(res, pathname) {
-  let relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const filePath = path.resolve(PUBLIC_DIR, relative);
   if (!filePath.startsWith(PUBLIC_DIR + path.sep) && filePath !== PUBLIC_DIR) {
     sendJson(res, 403, { error: "forbidden" });
@@ -554,21 +557,23 @@ function serveStatic(res, pathname) {
 
 async function backfillImages() {
   let count = 0;
-  for (const [key, value] of Object.entries(meta)) {
-    if (!value || !value.image || value.imageFile) continue;
+  for (const row of missingImageRows()) {
+    let value;
     try {
-      const cachedImage = await cacheImage(key, value.image);
-      value.imageFile = cachedImage.file;
-      value.imageMime = cachedImage.mime;
-      value.imageLocal = "/api/image/" + key;
+      value = JSON.parse(row.data);
+    } catch {
+      continue;
+    }
+    if (!value || !value.image) continue;
+    try {
+      const cachedImage = await cacheImage(row.lib_id, value.image);
+      setMetaImage(row.lib_id, cachedImage.file, cachedImage.mime);
       count++;
-      if (count % 20 === 0) scheduleMetaSave();
     } catch {
       // keep the remote URL as fallback
     }
   }
   if (count > 0) {
-    scheduleMetaSave();
     console.log(`[dood] cached ${count} images`);
   }
 }

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
-import { DATA_DIR } from "./store.mjs";
+import { DATA_DIR, clearMetaImage, imageRows } from "./store.mjs";
 import { BROWSER_UA } from "./http.mjs";
 
 export const IMAGE_DIR = path.join(DATA_DIR, "images");
@@ -24,23 +24,17 @@ const EXT_MIME = {
 const cached = new Map();
 const inFlight = new Map();
 
-export function initImageCache(meta) {
+export function initImageCache() {
   fs.mkdirSync(IMAGE_DIR, { recursive: true });
-  let changed = false;
-  for (const [key, value] of Object.entries(meta || {})) {
-    if (!value || !value.imageFile) continue;
-    const file = path.join(IMAGE_DIR, value.imageFile);
-    if (fs.existsSync(file)) {
-      cached.set(key, value.imageFile);
-      value.imageLocal = "/api/image/" + key;
+  for (const row of imageRows()) {
+    const key = String(row.lib_id);
+    const file = row.image_file;
+    if (file && fs.existsSync(path.join(IMAGE_DIR, file))) {
+      cached.set(key, file);
     } else {
-      delete value.imageFile;
-      delete value.imageMime;
-      delete value.imageLocal;
-      changed = true;
+      clearMetaImage(row.lib_id);
     }
   }
-  return changed;
 }
 
 export function imageMime(fileName) {

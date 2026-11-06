@@ -13,9 +13,6 @@ services:
     environment:
       EXCEL_PATH: /data/library.xlsx
       DATA_DIR: /data
-      # Gopeed 的 API 地址；也可部署后在页面“设置”里修改
-      # host.docker.internal 指向 NAS 宿主机，端口换成 Gopeed 映射到宿主机的端口
-      GOPEED_URL: "http://host.docker.internal:9999"
       DOWNLOAD_ROOT: "/app/Downloads"
       FETCH_INTERVAL_MS: "1200"
     extra_hosts:
