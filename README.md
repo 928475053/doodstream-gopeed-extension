@@ -85,6 +85,16 @@ Gopeed → 扩展 → DoodStream Downloader 齿轮图标：
 
 排查时看容器日志：`docker logs dood-resolver`。解析服务只接受 DoodStream 域名的 `/d/`、`/e/` 链接，建议设置 `RESOLVER_TOKEN` 且仅在内网使用；它只转发页面地址，不接触下载内容。
 
+## 常见问题
+
+**手动新建任务失败（HTTP 403）？**
+
+Gopeed 新建任务窗口里的「直接下载 / Direct Download」开关会**跳过扩展解析**，把 dood 页面链接直接交给 HTTP 引擎，必然被 Cloudflare 拦截。请关闭该开关后重新创建任务；也可以在 Gopeed 设置的「默认直接下载」里把默认值关掉。
+
+**任务一直显示解析失败？**
+
+确认扩展设置里的「解析服务地址」带完整协议和路径，例如 `http://172.17.0.1:33361/resolve`，并用 `curl` 或浏览器访问 `.../health` 确认解析服务可达。
+
 ## 平台限制
 
 - 配置了解析服务时，Docker/NAS 也能正常解析下载。
