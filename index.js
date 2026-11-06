@@ -13,9 +13,13 @@ function trim(value) {
   return String(value == null ? "" : value).replace(/^\s+|\s+$/g, "");
 }
 
-function userAgent(ctx) {
+function settingsValue(ctx, name) {
   const settings = (gopeed && gopeed.settings) || (ctx && ctx.settings) || {};
-  return trim(settings.ua) || DEFAULT_UA;
+  return trim(settings[name]);
+}
+
+function userAgent(ctx) {
+  return settingsValue(ctx, "ua") || DEFAULT_UA;
 }
 
 function randomAlphaNum(length) {
@@ -132,6 +136,41 @@ async function resolveViaHttp(embedUrl, headers) {
     };
   }
   throw new Error("播放页要求刷新后重试 (RELOAD)");
+}
+
+async function resolveViaResolver(ctx, embedUrl) {
+  const endpoint = settingsValue(ctx, "resolverUrl");
+  if (!endpoint) {
+    return null;
+  }
+  const headers = { "Content-Type": "application/json" };
+  const token = settingsValue(ctx, "resolverToken");
+  if (token) {
+    headers["X-Auth-Token"] = token;
+  }
+  const resp = await fetch(endpoint, {
+    method: "POST",
+    headers: headers,
+    body: JSON.stringify({ url: embedUrl }),
+  });
+  const text = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    throw new Error("解析服务返回非 JSON (HTTP " + resp.status + ")");
+  }
+  if (!resp.ok || data.error) {
+    throw new Error(data.error || "解析服务请求失败 (HTTP " + resp.status + ")");
+  }
+  if (!data.url) {
+    throw new Error("解析服务未返回直链");
+  }
+  return {
+    url: String(data.url),
+    referer: String(data.referer || embedUrl),
+    title: cleanTitle(data.name || data.title || ""),
+  };
 }
 
 function webviewAvailable() {
@@ -251,26 +290,42 @@ gopeed.events.onResolve(async function (ctx) {
     }
   }
 
-  let resolved;
-  let httpError;
-  try {
-    resolved = await resolveViaHttp(embedUrl, headers);
-  } catch (err) {
-    httpError = err;
-    resolved = await resolveViaWebview(embedUrl).catch(function (wvErr) {
-      throw new Error(
-        httpError.message +
-          "；WebView 兜底也失败：" +
-          wvErr.message +
-          "。若 Gopeed 运行在不支持 WebView 的平台（如 Docker/NAS），请改用桌面版。"
-      );
-    });
-    if (!resolved) {
-      throw new Error(
-        httpError.message +
-          "。该站点启用了 Cloudflare 防护，需要 Gopeed 桌面版的 WebView 兜底。"
-      );
+  let resolved = null;
+  const errors = [];
+
+  if (settingsValue(ctx, "resolverUrl")) {
+    try {
+      resolved = await resolveViaResolver(ctx, embedUrl);
+    } catch (err) {
+      errors.push("解析服务: " + err.message);
     }
+  }
+
+  if (!resolved) {
+    try {
+      resolved = await resolveViaHttp(embedUrl, headers);
+    } catch (err) {
+      errors.push("直连: " + err.message);
+    }
+  }
+
+  if (!resolved) {
+    try {
+      resolved = await resolveViaWebview(embedUrl);
+      if (!resolved) {
+        errors.push("WebView: 当前平台不可用");
+      }
+    } catch (err) {
+      errors.push("WebView: " + err.message);
+    }
+  }
+
+  if (!resolved) {
+    throw new Error(
+      "解析失败。" +
+        errors.join("；") +
+        "。Docker/NAS 等无 WebView 的环境请在扩展设置中填写【解析服务地址】。"
+    );
   }
 
   if (!title) {

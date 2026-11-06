@@ -1,0 +1,11 @@
+services:
+  dood-resolver:
+    build: .
+    image: dood-resolver:latest
+    container_name: dood-resolver
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    environment:
+      # 建议设置，防止局域网内其他人调用；扩展设置里填同样的值
+      RESOLVER_TOKEN: ""

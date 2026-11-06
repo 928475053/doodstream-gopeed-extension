@@ -28,17 +28,45 @@ github.com/928475053/doodstream-gopeed-extension
 3. 按播放器逻辑拼接 `前缀 + 10位随机字符 + ?token=<token>&expiry=<当前毫秒时间戳>`，得到签名直链；
 4. 直链请求自动携带 `Referer` 和浏览器 `User-Agent`。
 
-站点开启了 Cloudflare 防护，会按 TLS 指纹拦截 Go/Node 的 HTTP 客户端。因此扩展先走普通 HTTP；一旦被拦截，会自动切换到 Gopeed 的 WebView（真实浏览器内核）完成同样的解析。
+站点开启了 Cloudflare 防护，会按 TLS 指纹拦截 Go/Node 的 HTTP 客户端。因此扩展按以下顺序尝试：
+
+1. **解析服务**（如果配置了地址）：把播放页地址交给自建的 `resolver`，由它用 curl 完成解析；
+2. **普通 HTTP**：直接请求播放页；
+3. **WebView**：Gopeed 桌面版可用时，用真实浏览器内核打开播放页。
+
+## Docker / NAS 部署
+
+Docker 版 Gopeed 没有 WebView，且 Go 的 HTTP 客户端会被 Cloudflare 拦截，需要把仓库里的 `resolver` 跑起来：
+
+```bash
+cd resolver
+docker compose up -d --build
+```
+
+默认监听 `18080` 端口。也可以在 UGOS/群晖等 Docker 界面中导入 `resolver/Dockerfile` 自行构建，或使用 GitHub Actions 构建的镜像：
+
+```
+ghcr.io/928475053/doodstream-resolver:latest
+```
+
+然后在 Gopeed 的扩展设置中填写：
+
+- **解析服务地址**：`http://<解析服务IP>:18080/resolve`，例如 `http://192.168.1.10:18080/resolve`；容器同一网络时可用 `http://dood-resolver:8080/resolve`
+- **解析服务 Token**：与容器环境变量 `RESOLVER_TOKEN` 一致（可选）
+
+解析服务只接受 DoodStream 域名的 `/d/`、`/e/` 链接，建议设置 `RESOLVER_TOKEN` 后仅在内网使用。它只转发页面地址，不接触下载内容。
 
 ## 平台限制
 
-- WebView 兜底需要 Gopeed 桌面版（Windows/macOS/Linux）或支持 `gopeed.runtime.webview` 的客户端。
-- 在不支持 WebView 的环境（如 Docker/NAS 服务端）中，若站点启用了 Cloudflare 人机验证，解析会失败并给出提示。
+- 配置了解析服务时，Docker/NAS 也能正常解析下载。
+- 未配置解析服务时：桌面版走 WebView 兜底；无 WebView 且被 Cloudflare 拦截时会报错提示。
 - 人机验证需要交互时，WebView 可能无法自动通过。
 
 ## 设置
 
 - **User-Agent**：请求播放页使用的 UA，默认内置 Chrome UA。
+- **解析服务地址**：可选，自建 resolver 的 `/resolve` 地址。
+- **解析服务 Token**：可选，与服务端 `RESOLVER_TOKEN` 一致。
 
 ## 本地测试
 

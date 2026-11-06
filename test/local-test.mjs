@@ -7,10 +7,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const entry = join(here, "..", "index.js");
 const target = process.argv[2] || "https://dood.to/d/g68gu8474zzs";
 const useWebview = process.argv.includes("--webview");
+const useResolver = process.argv.includes("--resolver");
 
 // Node's own TLS stack is Cloudflare-challenged here, so route every request
 // through curl to exercise the extension's HTTP logic for real.
-function curlRaw(url, headers = {}, extraArgs = []) {
+function curlRaw(url, headers = {}, extraArgs = [], requestBody = null) {
   const tmp = join(here, ".body.tmp");
   const tmpHeaders = join(here, ".headers.tmp");
   const args = ["-sS", "-L", "--max-time", "60", "-o", tmp, "-D", tmpHeaders];
@@ -25,6 +26,7 @@ function curlRaw(url, headers = {}, extraArgs = []) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     );
   }
+  if (requestBody != null) args.push("--data-binary", requestBody);
   args.push("-w", "%{http_code} %{url_effective}", ...extraArgs, url);
   let out;
   try {
@@ -33,8 +35,14 @@ function curlRaw(url, headers = {}, extraArgs = []) {
     out = String(err.stdout || "0 " + url);
   }
   const [statusStr, effective] = out.trim().split(" ");
-  const body = readFileSync(tmp, "utf8");
-  const responseHeaders = readFileSync(tmpHeaders, "utf8");
+  let body = "";
+  let responseHeaders = "";
+  try {
+    body = readFileSync(tmp, "utf8");
+  } catch {}
+  try {
+    responseHeaders = readFileSync(tmpHeaders, "utf8");
+  } catch {}
   for (const f of [tmp, tmpHeaders]) {
     try {
       unlinkSync(f);
@@ -54,7 +62,7 @@ async function curlFetch(input, init = {}) {
     ? url
     : (globalThis.location ? globalThis.location.origin : "") + url;
   const headers = init.headers || {};
-  if (useWebview && pageLike(absolute)) {
+  if ((useWebview || useResolver) && pageLike(absolute)) {
     return {
       ok: false,
       status: 403,
@@ -62,7 +70,12 @@ async function curlFetch(input, init = {}) {
       text: async () => "<title>Just a moment...</title>",
     };
   }
-  const res = curlRaw(absolute, headers);
+  const res = curlRaw(
+    absolute,
+    headers,
+    [],
+    init.body != null ? String(init.body) : null
+  );
   return {
     ok: res.status >= 200 && res.status < 300,
     status: res.status,
@@ -112,7 +125,12 @@ if (useWebview) {
 }
 
 globalThis.gopeed = {
-  settings: {},
+  settings: useResolver
+    ? {
+        resolverUrl: process.env.RESOLVER_URL || "http://127.0.0.1:18080/resolve",
+        resolverToken: process.env.RESOLVER_TOKEN || "",
+      }
+    : {},
   info: { name: "doodstream" },
   logger: console,
   runtime,
@@ -132,7 +150,13 @@ if (!handler) {
 const ctx = { req: { url: target, labels: {} }, res: null };
 const started = Date.now();
 await handler(ctx);
-console.log("mode:", useWebview ? "webview-fallback" : "http", "| resolved in", Date.now() - started, "ms");
+console.log(
+  "mode:",
+  useWebview ? "webview-fallback" : useResolver ? "resolver" : "http",
+  "| resolved in",
+  Date.now() - started,
+  "ms"
+);
 console.log(JSON.stringify(ctx.res, null, 2));
 
 const file = ctx.res.files[0];
