@@ -1,0 +1,46 @@
+{
+  "name": "doodstream",
+  "author": "928475053",
+  "title": "DoodStream Downloader",
+  "description": "解析 DoodStream 风格的 /d/ 或 /e/ 页面，返回可直接下载的视频直链。",
+  "version": "1.0.0",
+  "homepage": "https://github.com/928475053/doodstream-gopeed-extension",
+  "repository": {
+    "url": "https://github.com/928475053/doodstream-gopeed-extension"
+  },
+  "scripts": [
+    {
+      "event": "onResolve",
+      "match": {
+        "urls": [
+          "*://dood.to/*",
+          "*://dood.so/*",
+          "*://dood.ws/*",
+          "*://dood.la/*",
+          "*://dood.yt/*",
+          "*://dood.re/*",
+          "*://dood.pm/*",
+          "*://dood.li/*",
+          "*://dood.watch/*",
+          "*://dood.work/*",
+          "*://dood.stream/*",
+          "*://doods.pro/*",
+          "*://d000d.com/*",
+          "*://ds2play.com/*",
+          "*://doodstream.com/*",
+          "*://playmogo.com/*"
+        ]
+      },
+      "entry": "index.js"
+    }
+  ],
+  "settings": [
+    {
+      "name": "ua",
+      "title": "User-Agent",
+      "description": "请求播放页时使用的 User-Agent，留空则使用内置的浏览器 UA。",
+      "type": "string",
+      "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    }
+  ]
+}

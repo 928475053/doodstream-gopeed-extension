@@ -1,0 +1,5 @@
+node_modules/
+test/.body.tmp
+test/.headers.tmp
+.DS_Store
+Thumbs.db
