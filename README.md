@@ -36,25 +36,54 @@ github.com/928475053/doodstream-gopeed-extension
 
 ## Docker / NAS 部署
 
-Docker 版 Gopeed 没有 WebView，且 Go 的 HTTP 客户端会被 Cloudflare 拦截，需要把仓库里的 `resolver` 跑起来：
+Docker 版 Gopeed 没有 WebView，且 Go 的 HTTP 客户端会被 Cloudflare 拦截，因此解析服务必须跑在 NAS 侧（扩展本身跑在 Gopeed 里，但解析页面由该服务完成）。
 
-```bash
-cd resolver
-docker compose up -d --build
+### 方式一：无需镜像仓库（推荐）
+
+在 UGOS / 群晖等 Docker 界面新建容器：
+
+- 镜像：`node:22-alpine`
+- 端口：`18080` → `8080`
+- 重启策略：`always`
+- 命令（覆盖 CMD）：
+
+```sh
+sh -c "apk add --no-cache curl >/dev/null && curl -fsSL https://raw.githubusercontent.com/928475053/doodstream-gopeed-extension/main/resolver/server.mjs -o /app.js && exec node /app.js"
 ```
 
-默认监听 `18080` 端口。也可以在 UGOS/群晖等 Docker 界面中导入 `resolver/Dockerfile` 自行构建，或使用 GitHub Actions 构建的镜像：
+或用 compose：
 
+```yaml
+services:
+  dood-resolver:
+    image: node:22-alpine
+    container_name: dood-resolver
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache curl >/dev/null
+        curl -fsSL https://raw.githubusercontent.com/928475053/doodstream-gopeed-extension/main/resolver/server.mjs -o /app.js
+        exec node /app.js
+    ports:
+      - "18080:8080"
+    environment:
+      RESOLVER_TOKEN: ""
 ```
-ghcr.io/928475053/doodstream-resolver:latest
-```
 
-然后在 Gopeed 的扩展设置中填写：
+### 方式二：预构建镜像
 
-- **解析服务地址**：`http://<解析服务IP>:18080/resolve`，例如 `http://192.168.1.10:18080/resolve`；容器同一网络时可用 `http://dood-resolver:8080/resolve`
+GitHub Actions 会构建 `ghcr.io/928475053/doodstream-resolver:latest`。GHCR 包默认是私有的，需要先在 [包设置](https://github.com/users/928475053/packages/container/doodstream-resolver/settings) 中把可见性改为 Public，或在 NAS 上执行 `docker login ghcr.io` 后再拉取。
+
+### 配置扩展
+
+Gopeed → 扩展 → DoodStream Downloader 齿轮图标：
+
+- **解析服务地址**：`http://<NAS局域网IP>:18080/resolve`；若解析容器与 Gopeed 在同一自定义 Docker 网络，可用 `http://dood-resolver:8080/resolve`
 - **解析服务 Token**：与容器环境变量 `RESOLVER_TOKEN` 一致（可选）
 
-解析服务只接受 DoodStream 域名的 `/d/`、`/e/` 链接，建议设置 `RESOLVER_TOKEN` 后仅在内网使用。它只转发页面地址，不接触下载内容。
+排查时看容器日志：`docker logs dood-resolver`。解析服务只接受 DoodStream 域名的 `/d/`、`/e/` 链接，建议设置 `RESOLVER_TOKEN` 且仅在内网使用；它只转发页面地址，不接触下载内容。
 
 ## 平台限制
 

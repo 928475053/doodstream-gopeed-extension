@@ -187,6 +187,9 @@ function readBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const startedAt = Date.now();
+  const remote = req.socket.remoteAddress;
+  console.log(new Date().toISOString(), req.method, req.url, "from", remote);
   try {
     const requestUrl = new URL(req.url, "http://localhost");
     if (requestUrl.pathname === "/health") {
@@ -227,8 +230,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     const data = await resolveDirect(target);
+    console.log("resolved", target, "->", data.url.slice(0, 60) + "...", Date.now() - startedAt + "ms");
     sendJson(res, 200, data);
   } catch (err) {
+    console.log("resolve failed:", err.message || String(err), Date.now() - startedAt + "ms");
     sendJson(res, 502, { error: err.message || String(err) });
   }
 });
