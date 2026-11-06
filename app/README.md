@@ -34,6 +34,27 @@ app/
   docker-compose.yml
 ```
 
+## 部署（预构建镜像）
+
+GitHub Actions 会构建并推送多架构镜像（linux/amd64 + linux/arm64）：
+
+```
+ghcr.io/928475053/dood-library:latest
+```
+
+```bash
+docker run -d --name dood-library \
+  -p 18082:8080 \
+  -v /path/to/all-videos-and-links.xlsx:/data/library.xlsx:ro \
+  -v /path/to/dood-data:/data \
+  -e GOPEED_URL=http://host.docker.internal:9999 \
+  --add-host=host.docker.internal:host-gateway \
+  --restart unless-stopped \
+  ghcr.io/928475053/dood-library:latest
+```
+
+GHCR 包默认是私有的：先在 [包设置](https://github.com/users/928475053/packages/container/dood-library/settings) 把可见性改为 Public，或在 NAS 上 `docker login ghcr.io` 后拉取。
+
 ## 部署（Docker Compose）
 
 1. 把 `all-videos-and-links.xlsx` 放到本目录（或修改 compose 里的挂载路径）。
