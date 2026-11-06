@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spanking Library 下载库</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>Spanking Library 下载库</h1>
+        <p class="sub">Excel 索引 · DoodStream 直链 · Gopeed 下载</p>
+      </div>
+    </div>
+    <div class="searchbar">
+      <input id="search" type="search" placeholder="搜索标题 / ID / 片名，例如 9272" autocomplete="off" />
+      <select id="status">
+        <option value="">全部状态</option>
+        <option value="ACTIVE">ACTIVE</option>
+        <option value="DRAFT">DRAFT</option>
+      </select>
+      <button id="refresh" class="ghost" title="刷新">刷新</button>
+      <button id="open-settings" class="ghost">设置</button>
+    </div>
+  </header>
+
+  <section class="toolbar">
+    <div class="filters">
+      <label class="check"><input id="dood-only" type="checkbox" checked /> 仅有 Dood 链接</label>
+      <select id="category">
+        <option value="">全部分类（已采集）</option>
+      </select>
+      <select id="page-size">
+        <option value="24">24 / 页</option>
+        <option value="48">48 / 页</option>
+        <option value="96">96 / 页</option>
+      </select>
+    </div>
+    <div id="stats" class="stats">加载中…</div>
+  </section>
+
+  <main id="grid" class="grid"></main>
+
+  <nav class="pager">
+    <button id="prev" class="ghost">上一页</button>
+    <span id="page-info" class="page-info"></span>
+    <button id="next" class="ghost">下一页</button>
+  </nav>
+
+  <footer class="footer">
+    仅用于整理你有权访问的内容。页面数据来自 spankinglibrary.com，抓取间隔可配置。
+  </footer>
+
+  <dialog id="settings-dialog" class="dialog">
+    <form method="dialog" class="dialog-inner">
+      <header class="dialog-header">
+        <h2>设置</h2>
+        <button value="cancel" class="icon-btn" aria-label="关闭">✕</button>
+      </header>
+
+      <div class="form-grid">
+        <label>
+          <span>Gopeed API 地址</span>
+          <input id="set-gopeed" type="text" placeholder="http://127.0.0.1:9999" />
+          <small>指向 Gopeed 容器的 API；可填 http://host.docker.internal:端口</small>
+        </label>
+        <label>
+          <span>API Token（可选）</span>
+          <input id="set-token" type="password" placeholder="留空表示不鉴权" />
+        </label>
+        <label>
+          <span>下载根目录（Gopeed 容器内路径）</span>
+          <input id="set-root" type="text" placeholder="/app/Downloads" />
+        </label>
+        <label>
+          <span>元数据抓取间隔（毫秒）</span>
+          <input id="set-interval" type="number" min="200" max="30000" step="100" />
+          <small>站点 robots.txt 建议 Crawl-delay: 30（30000ms）；按需调大。</small>
+        </label>
+        <label>
+          <span>下载连接数</span>
+          <input id="set-connections" type="number" min="1" max="32" />
+        </label>
+      </div>
+
+      <div class="dialog-actions">
+        <button id="test-gopeed" type="button" class="ghost">测试 Gopeed</button>
+        <button id="save-settings" type="button" class="primary">保存设置</button>
+      </div>
+
+      <hr />
+
+      <div class="prefetch">
+        <div class="prefetch-head">
+          <h3>后台采集</h3>
+          <div class="prefetch-actions">
+            <button id="prefetch-start" type="button" class="ghost">开始采集</button>
+            <button id="prefetch-start-refresh" type="button" class="ghost">刷新全部</button>
+            <button id="prefetch-stop" type="button" class="ghost">停止</button>
+          </div>
+        </div>
+        <div class="progress"><div id="prefetch-bar" class="progress-bar"></div></div>
+        <p id="prefetch-status" class="prefetch-status">未开始</p>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

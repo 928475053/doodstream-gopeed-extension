@@ -1,0 +1,131 @@
+# Dood Library（资料库 Web 应用）
+
+从 Excel 表格生成资源索引，按 spankinglibrary.com 的 ID 抓取截图、价格、分类和 Store，并把 DoodStream 链接解析成直链发送给 Gopeed。下载时使用站点标题作为文件名，并按第一个分类自动建立子文件夹。
+
+## 功能
+
+- 读取 `all-videos-and-links.xlsx`（ID、名称、状态、DoodStream URL），生成 `/data/items.json`
+- 按 ID 抓取 `https://www.spankinglibrary.com/clipdetails.php?id=<ID>`：
+  - 截图（og:image + 多张预览图）
+  - 价格、Store、分类、分辨率、时长、简介
+- 卡片式浏览：搜索、状态筛选、分类筛选、分页
+- 元数据懒加载 + 磁盘缓存；支持后台批量采集
+- 一键发送到 Gopeed：
+  - 文件名：站点标题 + `.mp4`
+  - 目录：`<下载根目录>/<第一个分类>`，例如 `/app/Downloads/M-F Spankings`
+  - 自动携带 CDN 需要的 `Referer` / `User-Agent`
+- 设置页可测试 Gopeed 连接、调整抓取间隔和下载连接数
+
+## 目录
+
+```
+app/
+  server.mjs            HTTP 服务 + API + 静态页面
+  lib/
+    excel.mjs           xlsx 解析（unzip + XML）
+    library.mjs         spankinglibrary 详情抓取
+    resolve.mjs         DoodStream → 直链
+    gopeed.mjs          Gopeed API 客户端
+    store.mjs           索引/缓存/设置持久化
+  public/               前端页面
+  data/                 运行时数据（items/meta/settings，已 gitignore）
+  Dockerfile
+  docker-compose.yml
+```
+
+## 部署（Docker Compose）
+
+1. 把 `all-videos-and-links.xlsx` 放到本目录（或修改 compose 里的挂载路径）。
+2. 修改 `docker-compose.yml` 里的 `GOPEED_URL`（见下一节）。
+3. 启动：
+
+```bash
+cd app
+docker compose up -d --build
+```
+
+打开 `http://<NAS-IP>:18082/`。
+
+### 不构建镜像的部署方式
+
+在 UGOS/群晖 Docker 中新建容器：
+
+- 镜像：`node:22-alpine`
+- 端口：`18082` → `8080`
+- 重启策略：always
+- 命令：
+
+```sh
+sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com/928475053/doodstream-gopeed-extension/archive/refs/heads/main.tar.gz | tar -xz -C /opt && exec node /opt/doodstream-gopeed-extension-main/app/server.mjs"
+```
+
+- 挂载：
+  - `all-videos-and-links.xlsx` → `/data/library.xlsx`（只读）
+  - `data` 目录 → `/data`（用于缓存）
+- 环境变量：
+  - `EXCEL_PATH=/data/library.xlsx`
+  - `DATA_DIR=/data`
+  - `GOPEED_URL=http://host.docker.internal:9999`（按实际端口修改）
+  - `DOWNLOAD_ROOT=/app/Downloads`
+- 若使用 `host.docker.internal`，需要给容器加 host 映射：`host.docker.internal:host-gateway`（compose 已配置）。
+
+## 配置 Gopeed API 地址
+
+**不要填 UGREEN 的 `ugdocker.link` 地址**：那个入口需要网页登录，服务端请求会被重定向到登录页。
+
+应用和 Gopeed 都在 NAS 上时，用 NAS 本机/容器网络访问：
+
+- `http://host.docker.internal:<Gopeed宿主机端口>`（compose 已加 host 映射）
+  - 在 UGOS Docker 的 Gopeed 容器里查看端口映射，例如 `9999/tcp -> 0.0.0.0:9999`，则填 `http://host.docker.internal:9999`
+- 或 `http://<NAS局域网IP>:<Gopeed宿主机端口>`
+- 若两个容器在同一个自定义 Docker 网络，可用 `http://<Gopeed容器名>:<容器内端口>`
+
+部署后在页面「设置」里点 **测试 Gopeed**，返回版本号即成功。
+
+## 使用
+
+- 搜索框按标题或 ID 搜索，例如 `9272`。
+- 卡片进入可视区域后才请求站点元数据，避免一次打 4 万次请求；结果写入 `/data/meta.json`。
+- 点 **下载到 Gopeed**：服务端会解析 Dood 链接，再调用 Gopeed 创建任务。
+  - 文件名：`Late For Assembly - Full MP4.mp4`
+  - 目录：`/app/Downloads/M-F Spankings`
+  - 路径是 **Gopeed 容器内路径**，不是宿主机路径。
+- 分类筛选只统计已采集的条目；未采集的条目在滚动时自动补全。
+
+## 后台采集
+
+设置页的「开始采集」会从第一条未采集的记录开始，按设置的间隔逐条抓取；「刷新全部」会重新抓取所有记录。
+
+- 默认间隔 `1200ms`，44,779 条约需 15 小时；站点 `robots.txt` 建议 `Crawl-delay: 30`，请按需调大。
+- 采集进度保存在内存中，刷新页面不影响；重启应用后从缺失元数据继续。
+- 抓取失败会记录失败数并跳过，可在卡片上点击重试。
+
+## 环境变量
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8080` | 监听端口 |
+| `DATA_DIR` | `app/data` | 索引、元数据、设置的持久化目录 |
+| `EXCEL_PATH` | 空 | `all-videos-and-links.xlsx` 路径；首次启动生成 `items.json` |
+| `GOPEED_URL` | 空 | Gopeed API 地址，也可在页面设置里修改 |
+| `GOPEED_TOKEN` | 空 | Gopeed API Token（如果启用了鉴权） |
+| `DOWNLOAD_ROOT` | `/app/Downloads` | Gopeed 容器内下载根目录 |
+| `FETCH_INTERVAL_MS` | `1200` | 元数据抓取间隔 |
+| `CONNECTIONS` | `16` | Gopeed 下载连接数 |
+
+## API
+
+- `GET /api/items?q=&status=&category=&doodOnly=&page=&pageSize=`
+- `GET /api/meta/:id`（`?refresh=1` 强制刷新）
+- `POST /api/download/:id`
+- `GET/POST /api/settings`
+- `POST /api/settings/test`
+- `POST /api/prefetch/start|stop`、`GET /api/prefetch/status`
+- `GET /api/categories`、`GET /api/stats`、`GET /api/health`
+
+## 注意
+
+- 应用没有登录鉴权，只应部署在局域网内，不要直接暴露到公网。
+- Excel、`data/` 和抓取到的元数据包含成人内容与你的资源链接，均未提交到仓库，请自行保管。
+- 下载能力仅用于整理你有权访问的内容。
+- 站点页面结构变化、条目被删除或 Cloudflare 拦截时，单条抓取会失败并显示“信息获取失败”；可稍后重试或调大抓取间隔。

@@ -3,3 +3,6 @@ test/.body.tmp
 test/.headers.tmp
 .DS_Store
 Thumbs.db
+app/data/
+app/.local-data/
+app/all-videos-and-links.xlsx
