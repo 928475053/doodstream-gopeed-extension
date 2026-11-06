@@ -3,7 +3,7 @@
   "author": "928475053",
   "title": "DoodStream Downloader",
   "description": "解析 DoodStream 风格的 /d/ 或 /e/ 页面，返回可直接下载的视频直链。",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "homepage": "https://github.com/928475053/doodstream-gopeed-extension",
   "repository": {
     "url": "https://github.com/928475053/doodstream-gopeed-extension"

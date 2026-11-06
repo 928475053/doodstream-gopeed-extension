@@ -162,7 +162,7 @@ console.log(JSON.stringify(ctx.res, null, 2));
 const file = ctx.res.files[0];
 const check = curlRaw(
   file.req.url,
-  Object.assign({}, file.req.extra.headers, { Range: "bytes=0-1023" })
+  Object.assign({}, file.req.extra.header, { Range: "bytes=0-1023" })
 );
 console.log("download check:", check.status, "final:", check.url);
 const type = (check.headers.match(/content-type:\s*([^\r\n]+)/i) || [])[1] || "";

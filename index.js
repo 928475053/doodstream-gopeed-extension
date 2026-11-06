@@ -341,7 +341,7 @@ gopeed.events.onResolve(async function (ctx) {
         req: {
           url: resolved.url,
           extra: {
-            headers: {
+            header: {
               "User-Agent": ua,
               Referer: resolved.referer,
             },
