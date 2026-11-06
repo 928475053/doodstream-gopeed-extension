@@ -54,20 +54,21 @@ docker run -d --name dood-library \
 
 启动后打开页面，在「设置」里填写 Gopeed API 地址（应用不内置地址）。
 
-GHCR 包默认是私有的：先在 [包设置](https://github.com/users/928475053/packages/container/dood-library/settings) 把可见性改为 Public，或在 NAS 上 `docker login ghcr.io` 后拉取。
+GHCR 包已验证可匿名拉取；如果遇到 401，执行 `docker login ghcr.io`，或到 [包设置](https://github.com/users/928475053/packages/container/dood-library/settings) 把可见性改为 Public。
 
 ## 部署（Docker Compose）
 
-1. 把 `all-videos-and-links.xlsx` 放到本目录（或修改 compose 里的挂载路径）。
-3. 启动后在页面「设置」里填写 Gopeed API 地址（应用不预置地址）。
-3. 启动：
+1. 把 `all-videos-and-links.xlsx` 放到 `app/` 目录（或修改 compose 里的挂载路径）。
+2. 启动：
 
 ```bash
 cd app
-docker compose up -d --build
+docker compose up -d
 ```
 
-打开 `http://<NAS-IP>:18082/`。
+3. 打开 `http://<NAS-IP>:18082/`，在「设置」里填写 Gopeed API 地址（应用不预置地址）。
+
+compose 直接使用预构建镜像 `ghcr.io/928475053/dood-library:latest`，不需要本地构建；如需本地构建，注释掉 `image:` 并取消 `build: .` 的注释。
 
 ### 不构建镜像的部署方式
 

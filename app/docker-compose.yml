@@ -1,19 +1,26 @@
 services:
   dood-library:
-    build: .
-    image: dood-library:latest
+    image: ghcr.io/928475053/dood-library:latest
+    # 如需本地构建：注释掉 image，取消下面一行
+    # build: .
     container_name: dood-library
     restart: unless-stopped
     ports:
       - "18082:8080"
     volumes:
-      # 把 all-videos-and-links.xlsx 放到本目录，或改成宿主机上的实际路径
+      # 把 all-videos-and-links.xlsx 放到本目录，或改成宿主机实际路径
       - ./all-videos-and-links.xlsx:/data/library.xlsx:ro
       - ./data:/data
     environment:
       EXCEL_PATH: /data/library.xlsx
       DATA_DIR: /data
-      DOWNLOAD_ROOT: "/app/Downloads"
+      DOWNLOAD_ROOT: /app/Downloads
       FETCH_INTERVAL_MS: "1200"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
