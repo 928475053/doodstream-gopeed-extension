@@ -69,6 +69,16 @@ function extractTitle(html) {
   return match ? cleanTitle(match[1]) : "";
 }
 
+function fileNameFromUrl(url) {
+  try {
+    const pathname = new URL(url).pathname;
+    const base = pathname.substring(pathname.lastIndexOf("/") + 1);
+    return decodeURIComponent(base) || "";
+  } catch (err) {
+    return "";
+  }
+}
+
 function extractEmbedUrl(html, baseUrl, fileId) {
   const match = html.match(IFRAME_RE);
   if (match) {
@@ -331,7 +341,7 @@ gopeed.events.onResolve(async function (ctx) {
   if (!title) {
     title = resolved.title;
   }
-  const fileName = safeFileName(title, fileId);
+  const fileName = fileNameFromUrl(resolved.url) || safeFileName(title, fileId);
 
   ctx.res = {
     name: fileName,
