@@ -10,6 +10,7 @@
   - 价格、Store、分类标签、分辨率、时长、简介
 - 卡片式浏览：搜索、状态筛选、标签筛选、分页
 - 元数据懒加载 + 磁盘缓存；支持后台批量采集
+- 图片落盘：元数据采集或首次查看时把主缩略图下载到 `/data/images/<ID>.jpg`，页面通过 `/api/image/<ID>` 读取本地文件；下载失败时回退到 CDN 地址
 - 一键发送到 Gopeed：
   - 文件名：站点标题 + `.mp4`
   - 目录：`<下载根目录>/<Store>`，例如 `/app/Downloads/NORTHERN SPANKING FILMS`
@@ -28,7 +29,7 @@ app/
     gopeed.mjs          Gopeed API 客户端
     store.mjs           索引/缓存/设置持久化
   public/               前端页面
-  data/                 运行时数据（items/meta/settings，已 gitignore）
+  data/                 运行时数据（items/meta/settings、images 图片缓存，已 gitignore）
   Dockerfile
   docker-compose.yml
 ```
@@ -117,6 +118,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 - `GET /api/items?q=&status=&category=&doodOnly=&page=&pageSize=`
 - `GET /api/meta/:id`（`?refresh=1` 强制刷新）
+- `GET /api/image/:id`（本地图片缓存，未命中时下载并落盘）
 - `POST /api/download/:id`
 - `GET/POST /api/settings`
 - `POST /api/settings/test`
@@ -127,5 +129,6 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 - 应用没有登录鉴权，只应部署在局域网内，不要直接暴露到公网。
 - Excel、`data/` 和抓取到的元数据包含成人内容与你的资源链接，均未提交到仓库，请自行保管。
+- `data/images/` 只保存每条的**主缩略图**（约 20–30KB），44,779 条约占用 1–1.5GB；多张预览图仍保留远程 URL，未落盘。
 - 下载能力仅用于整理你有权访问的内容。
 - 站点页面结构变化、条目被删除或 Cloudflare 拦截时，单条抓取会失败并显示“信息获取失败”；可稍后重试或调大抓取间隔。

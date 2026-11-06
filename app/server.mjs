@@ -17,6 +17,13 @@ import { fetchClip } from "./lib/library.mjs";
 import { createTask, getInfo } from "./lib/gopeed.mjs";
 import { resolveDirect } from "./lib/resolve.mjs";
 import { BROWSER_UA } from "./lib/http.mjs";
+import {
+  IMAGE_DIR,
+  cacheImage,
+  imageFileFor,
+  imageMime,
+  initImageCache,
+} from "./lib/images.mjs";
 
 const PORT = Number(process.env.PORT || 8080);
 const APP_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +39,13 @@ for (const item of items) {
 }
 const meta = loadMeta();
 let settings = loadSettings();
+try {
+  if (initImageCache(meta)) {
+    saveMeta(meta);
+  }
+} catch (err) {
+  console.error("[dood] init image cache failed:", err.message);
+}
 
 console.log(
   `[dood] loaded ${items.length} items, ${Object.keys(meta).length} cached metadata`
@@ -90,6 +104,19 @@ async function pumpMetaQueue() {
       try {
         const data = await fetchClip(job.id);
         if (!data) throw new Error("spankinglibrary 中未找到该条目");
+        if (data.image) {
+          try {
+            const cachedImage = await cacheImage(job.id, data.image);
+            data.imageFile = cachedImage.file;
+            data.imageMime = cachedImage.mime;
+            data.imageLocal = "/api/image/" + job.id;
+          } catch (imageErr) {
+            console.error(
+              `[dood] image cache failed #${job.id}:`,
+              imageErr.message
+            );
+          }
+        }
         meta[job.key] = data;
         scheduleMetaSave();
         job.resolve(data);
@@ -198,7 +225,7 @@ function itemView(item) {
     meta: m
       ? {
           title: m.title,
-          image: m.image,
+          image: m.image ? "/api/image/" + item.libId : "",
           images: m.images,
           price: m.price,
           currency: m.currency,
@@ -329,9 +356,69 @@ async function handleApi(req, res, url) {
     const force = url.searchParams.get("refresh") === "1";
     try {
       const data = await enqueueMeta(libId, force);
-      sendJson(res, 200, { meta: data });
+      const view =
+        data && data.image
+          ? Object.assign({}, data, { image: "/api/image/" + libId })
+          : data;
+      sendJson(res, 200, { meta: view });
     } catch (err) {
       sendJson(res, 502, { error: err.message || String(err) });
+    }
+    return;
+  }
+
+  const imageMatch = pathname.match(/^\/api\/image\/(\d+)$/);
+  if (imageMatch) {
+    const libId = Number(imageMatch[1]);
+    const metaData = metaFor(libId);
+    if (!metaData) {
+      sendJson(res, 404, { error: "条目元数据不存在" });
+      return;
+    }
+    let file = imageFileFor(libId);
+    if (!file) {
+      if (!metaData.image) {
+        sendJson(res, 404, { error: "该条目没有图片" });
+        return;
+      }
+      try {
+        const cachedImage = await cacheImage(libId, metaData.image);
+        metaData.imageFile = cachedImage.file;
+        metaData.imageMime = cachedImage.mime;
+        metaData.imageLocal = "/api/image/" + libId;
+        scheduleMetaSave();
+        file = cachedImage.file;
+      } catch (err) {
+        let allowed = false;
+        try {
+          allowed = /(^|\.)spankinglibrary\.com$/i.test(
+            new URL(metaData.image).hostname
+          );
+        } catch {}
+        if (allowed) {
+          res.writeHead(302, {
+            Location: metaData.image,
+            "Cache-Control": "no-store",
+          });
+          res.end();
+        } else {
+          sendJson(res, 502, { error: "图片缓存失败: " + err.message });
+        }
+        return;
+      }
+    }
+    const fullPath = path.join(IMAGE_DIR, file);
+    try {
+      const stat = fs.statSync(fullPath);
+      res.writeHead(200, {
+        "Content-Type": imageMime(file),
+        "Content-Length": stat.size,
+        "Cache-Control": "public, max-age=604800",
+        "Access-Control-Allow-Origin": "*",
+      });
+      fs.createReadStream(fullPath).pipe(res);
+    } catch (err) {
+      sendJson(res, 500, { error: "读取图片失败" });
     }
     return;
   }
@@ -464,6 +551,29 @@ function serveStatic(res, pathname) {
     res.end(data);
   });
 }
+
+async function backfillImages() {
+  let count = 0;
+  for (const [key, value] of Object.entries(meta)) {
+    if (!value || !value.image || value.imageFile) continue;
+    try {
+      const cachedImage = await cacheImage(key, value.image);
+      value.imageFile = cachedImage.file;
+      value.imageMime = cachedImage.mime;
+      value.imageLocal = "/api/image/" + key;
+      count++;
+      if (count % 20 === 0) scheduleMetaSave();
+    } catch {
+      // keep the remote URL as fallback
+    }
+  }
+  if (count > 0) {
+    scheduleMetaSave();
+    console.log(`[dood] cached ${count} images`);
+  }
+}
+
+setTimeout(backfillImages, 1500);
 
 const server = http.createServer(async (req, res) => {
   try {
