@@ -2,7 +2,6 @@ const state = {
   page: 1,
   pageSize: 24,
   q: "",
-  doodOnly: true,
   tags: new Set(),
   stores: new Set(),
   total: 0,
@@ -384,7 +383,6 @@ async function load() {
   const params = new URLSearchParams({
     page: String(state.page),
     pageSize: String(state.pageSize),
-    doodOnly: state.doodOnly ? "1" : "0",
   });
   if (state.q) params.set("q", state.q);
   for (const tag of state.tags) params.append("tag", tag);
@@ -469,12 +467,6 @@ $("#search").addEventListener("input", (event) => {
     state.page = 1;
     load();
   }, 350);
-});
-
-$("#dood-only").addEventListener("change", (event) => {
-  state.doodOnly = event.target.checked;
-  state.page = 1;
-  load();
 });
 
 $("#page-size").addEventListener("change", (event) => {

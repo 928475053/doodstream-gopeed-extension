@@ -167,7 +167,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 ## API
 
-- `GET /api/items?q=&tag=&tag=&store=&store=&doodOnly=&page=&pageSize=`
+- `GET /api/items?q=&tag=&tag=&store=&store=&page=&pageSize=`
 - `POST /api/items/reload`（强制重新读取 Excel）
 - `GET /api/meta/:id`（`?refresh=1` 强制刷新）
 - `GET /api/image/:id`（本地图片缓存，未命中时下载并落盘）

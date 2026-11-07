@@ -305,7 +305,6 @@ function itemView(item) {
 
 function filterItems(searchParams) {
   const q = String(searchParams.get("q") || "").trim().toLowerCase();
-  const doodOnly = searchParams.get("doodOnly") !== "0";
   const tags = searchParams
     .getAll("tag")
     .map((value) => value.trim())
@@ -318,7 +317,6 @@ function filterItems(searchParams) {
     .filter(Boolean);
 
   let result = items;
-  if (doodOnly) result = result.filter((item) => item.dood);
   if (q) {
     result = result.filter(
       (item) =>

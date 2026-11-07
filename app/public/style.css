@@ -139,14 +139,6 @@ input:focus, select:focus { border-color: var(--accent); }
   flex-wrap: wrap;
 }
 
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
 .stats {
   color: var(--muted);
   font-size: 12px;
