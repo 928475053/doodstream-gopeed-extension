@@ -15,10 +15,14 @@ import {
   joinDownloadPath,
   lastFailure,
   loadItems,
+  loadPrefetchState,
   loadSettings,
   metaCount,
   metaIds,
   missingImageRows,
+  rebuildItemsFromExcel,
+  removeFailure,
+  savePrefetchState,
   saveSettings,
   setMeta,
   setMetaImage,
@@ -42,13 +46,20 @@ const PUBLIC_DIR = path.join(APP_ROOT, "public");
 const PAGE_SIZE_MAX = 100;
 
 initMetaStore();
-const items = loadItems();
+let items = loadItems();
 const itemByLibId = new Map();
-for (const item of items) {
-  if (item.libId && !itemByLibId.has(item.libId)) {
-    itemByLibId.set(item.libId, item);
+
+function rebuildItemIndex(list) {
+  items = list;
+  itemByLibId.clear();
+  for (const item of items) {
+    if (item.libId && !itemByLibId.has(item.libId)) {
+      itemByLibId.set(item.libId, item);
+    }
   }
 }
+rebuildItemIndex(items);
+
 let settings = loadSettings();
 initImageCache();
 
@@ -60,8 +71,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const metaQueue = [];
 const metaInflight = new Map();
-let pumping = false;
-let lastFetchAt = 0;
+const metaSlots = Array.from({ length: 10 }, () => ({
+  busy: false,
+  lastFetchAt: 0,
+}));
+
+function metaConcurrency() {
+  return Math.max(1, Math.min(10, Number(settings.fetchConcurrency) || 4));
+}
 
 function metaFor(libId) {
   return getMeta(libId);
@@ -86,41 +103,43 @@ function enqueueMeta(libId, force = false) {
   return promise;
 }
 
-async function pumpMetaQueue() {
-  if (pumping) return;
-  pumping = true;
+function pumpMetaQueue() {
+  const limit = metaConcurrency();
+  for (let i = 0; i < limit && metaQueue.length > 0; i++) {
+    const slot = metaSlots[i];
+    if (slot.busy) continue;
+    const job = metaQueue.shift();
+    slot.busy = true;
+    runMetaJob(job, slot).finally(() => {
+      slot.busy = false;
+      pumpMetaQueue();
+    });
+  }
+}
+
+async function runMetaJob(job, slot) {
+  const interval = Number(settings.fetchIntervalMs) || 1200;
+  const wait = Math.max(0, interval - (Date.now() - slot.lastFetchAt));
+  if (wait > 0) await sleep(wait);
+  slot.lastFetchAt = Date.now();
   try {
-    while (metaQueue.length > 0) {
-      const job = metaQueue.shift();
-      const interval = Number(settings.fetchIntervalMs) || 1200;
-      const wait = Math.max(0, interval - (Date.now() - lastFetchAt));
-      if (wait > 0) await sleep(wait);
-      lastFetchAt = Date.now();
+    const data = await fetchClip(job.id);
+    if (!data) throw new Error("spankinglibrary 中未找到该条目");
+    if (data.image) {
       try {
-        const data = await fetchClip(job.id);
-        if (!data) throw new Error("spankinglibrary 中未找到该条目");
-        if (data.image) {
-          try {
-            const cachedImage = await cacheImage(job.id, data.image);
-            data.imageFile = cachedImage.file;
-            data.imageMime = cachedImage.mime;
-            data.imageLocal = "/api/image/" + job.id;
-          } catch (imageErr) {
-            console.error(
-              `[dood] image cache failed #${job.id}:`,
-              imageErr.message
-            );
-          }
-        }
-        setMeta(job.id, data);
-        job.resolve(data);
-      } catch (err) {
-        addFailure(job.id, err.message || String(err));
-        job.reject(err);
+        const cachedImage = await cacheImage(job.id, data.image);
+        data.imageFile = cachedImage.file;
+        data.imageMime = cachedImage.mime;
+        data.imageLocal = "/api/image/" + job.id;
+      } catch (imageErr) {
+        console.error(`[dood] image cache failed #${job.id}:`, imageErr.message);
       }
     }
-  } finally {
-    pumping = false;
+    setMeta(job.id, data);
+    job.resolve(data);
+  } catch (err) {
+    addFailure(job.id, err.message || String(err));
+    job.reject(err);
   }
 }
 
@@ -135,6 +154,15 @@ const prefetch = {
   mode: "",
 };
 
+const savedPrefetch = loadPrefetchState();
+if (savedPrefetch) {
+  prefetch.mode = savedPrefetch.mode || "";
+  prefetch.total = savedPrefetch.total || 0;
+  prefetch.done = savedPrefetch.done || 0;
+  prefetch.errors = savedPrefetch.errors || 0;
+  prefetch.startedAt = savedPrefetch.started_at || null;
+}
+
 function prefetchStatus() {
   const last = lastFailure();
   return {
@@ -147,6 +175,7 @@ function prefetchStatus() {
     current: prefetch.current,
     startedAt: prefetch.startedAt,
     mode: prefetch.mode,
+    concurrency: metaConcurrency(),
   };
 }
 
@@ -159,22 +188,35 @@ async function runPrefetch(targets, mode) {
   prefetch.errors = 0;
   prefetch.startedAt = Date.now();
   prefetch.mode = mode;
+  savePrefetchState(prefetch);
 
   (async () => {
     const force = mode === "refresh";
-    for (const item of targets) {
-      if (prefetch.stopRequested) break;
-      prefetch.current = { libId: item.libId, title: item.title };
-      try {
-        await enqueueMeta(item.libId, force);
-        prefetch.done++;
-      } catch {
-        prefetch.errors++;
+    const workers = Math.max(
+      1,
+      Math.min(metaConcurrency(), targets.length || 1)
+    );
+    let index = 0;
+
+    const work = async () => {
+      while (!prefetch.stopRequested && index < targets.length) {
+        const item = targets[index++];
+        prefetch.current = { libId: item.libId, title: item.title };
+        try {
+          await enqueueMeta(item.libId, force);
+          prefetch.done++;
+        } catch {
+          prefetch.errors++;
+        }
+        savePrefetchState(prefetch);
       }
-    }
+    };
+
+    await Promise.all(Array.from({ length: workers }, work));
     prefetch.running = false;
     prefetch.current = null;
     prefetch.stopRequested = false;
+    savePrefetchState(prefetch);
   })();
 
   return prefetchStatus();
@@ -187,6 +229,10 @@ async function startPrefetch(options = {}) {
     const targets = items.filter(
       (item) => item.libId && item.dood && ids.has(item.libId)
     );
+    const matched = new Set(targets.map((item) => item.libId));
+    for (const id of ids) {
+      if (!matched.has(id)) removeFailure(id);
+    }
     return runPrefetch(targets, "retry");
   }
   const existing = new Set(metaIds());
@@ -317,6 +363,22 @@ async function handleApi(req, res, url) {
 
   if (pathname === "/api/categories") {
     sendJson(res, 200, { categories: categoryList() });
+    return;
+  }
+
+  if (pathname === "/api/items/reload" && req.method === "POST") {
+    try {
+      const list = rebuildItemsFromExcel();
+      rebuildItemIndex(list);
+      sendJson(res, 200, {
+        ok: true,
+        items: list.length,
+        withDood: list.filter((item) => item.dood).length,
+        meta: metaCount(),
+      });
+    } catch (err) {
+      sendJson(res, 502, { error: err.message || String(err) });
+    }
     return;
   }
 

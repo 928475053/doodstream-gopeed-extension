@@ -74,10 +74,10 @@ export function parseExcel(filePath) {
   }
 
   items.sort((a, b) => {
-    if (a.libId === null && b.libId === null) return a.name.localeCompare(b.name);
+    if (a.libId === null && b.libId === null) return b.name.localeCompare(a.name);
     if (a.libId === null) return 1;
     if (b.libId === null) return -1;
-    return a.libId - b.libId;
+    return b.libId - a.libId;
   });
 
   return items;

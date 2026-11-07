@@ -8,8 +8,10 @@
 - 按 ID 抓取 `https://www.spankinglibrary.com/clipdetails.php?id=<ID>`：
   - 截图（og:image + 多张预览图）
   - 价格、Store、分类标签、分辨率、时长、简介
-- 卡片式浏览：搜索、标签筛选、分页
-- 元数据懒加载 + SQLite 持久化；支持后台批量采集与失败重试
+- 卡片式浏览：搜索、标签筛选、分页，按 ID 倒序（新内容在前）
+- 手机端适配：单列卡片、全屏设置面板、底部翻页、更大的触控区域
+- Excel 只在首次启动或手动「强制重新读取 Excel」时解析，之后直接使用 `items.json`
+- 元数据懒加载 + SQLite 持久化；后台采集支持并发、断点续采、进度持久化和失败重试
 - 图片落盘：元数据采集或首次查看时把主缩略图下载到 `/data/images/<ID>.jpg`，页面通过 `/api/image/<ID>` 读取本地文件；下载失败时回退到 CDN 地址
 - 一键发送到 Gopeed：
   - 文件名：站点标题 + `.mp4`
@@ -109,7 +111,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 ## 使用
 
-- 搜索框按标题或 ID 搜索，例如 `9272`。
+- 搜索框按标题或 ID 搜索，例如 `9272`；列表按 ID 从大到小排列。
 - 卡片进入可视区域后才请求站点元数据，避免一次打 4 万次请求；结果写入 SQLite（`/data/library.db`）。
 - 点 **下载到 Gopeed**：服务端会解析 Dood 链接，再调用 Gopeed 创建任务。
   - 文件名：`Late For Assembly - Full MP4.mp4`
@@ -119,12 +121,20 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 ## 后台采集
 
-设置页的「开始采集」会从第一条未采集的记录开始，按设置的间隔逐条抓取；「刷新全部」会重新抓取所有记录。
+设置页的「开始采集」会从第一条未采集的记录开始，按设置的并发和间隔逐条抓取；「刷新全部」会重新抓取所有记录。
 
-- 默认间隔 `1200ms`，44,779 条约需 15 小时；站点 `robots.txt` 建议 `Crawl-delay: 30`，请按需调大。
-- 采集进度保存在内存中，刷新页面不影响；重启应用后从缺失元数据继续。
-- 失败条目会写入 SQLite 的 `failures` 表；设置页显示「重试失败 (N)」，只重试失败条目，失败记录重启后仍保留。
+- **并发**：默认 `4` 个线程（设置页可调 1–10）；每个线程独立等待抓取间隔。
+- **速率**：实际约等于 `并发 ÷ 间隔`，默认 4 × 1200ms ≈ 3.3 请求/秒。站点 `robots.txt` 建议 `Crawl-delay: 30`，请按站点承受能力调大间隔或调低并发。
+- **断点续采**：已完成条目写入 SQLite；中断后再次点「开始采集」会跳过已采集记录，从剩余条目继续。
+- **进度保存**：进度按采集/刷新/重试分别写入 `prefetch_progress` 表，重启应用后设置页仍显示上次的完成数/总数。
+- **失败重试**：失败条目写入 `failures` 表；设置页显示「重试失败 (N)」，只重试失败条目，失败记录重启后仍保留。
 - 卡片懒加载失败也可以点击卡片上的失败提示单独重试。
+
+## 索引更新
+
+- 首次启动时读取 `EXCEL_PATH` 指向的 xlsx，生成 `/data/items.json`。
+- 后续启动直接加载 `items.json`，**不会再次读取 Excel**。
+- 需要更新索引时，在设置页点「强制重新读取 Excel」，会重新解析并覆盖 `items.json`；已有 SQLite 元数据不受影响。
 
 ## 元数据存储（SQLite）
 
@@ -133,6 +143,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 - `meta`：每条元数据按 ID 增量 upsert
 - `meta_tags`：标签索引，用于筛选和统计
 - `failures`：采集失败记录，供「重试失败」使用
+- `prefetch_progress`：后台采集进度（按采集/刷新/重试分别保存），重启后继续显示
 
 首次启动会把旧的 `data/meta.json` 导入数据库并重命名为 `meta.json.migrated`。Node 22 会在启动日志里打印 SQLite 实验特性警告，不影响使用。
 
@@ -144,12 +155,14 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 | `DATA_DIR` | `app/data` | 索引、元数据、设置的持久化目录 |
 | `EXCEL_PATH` | 空 | `all-videos-and-links.xlsx` 路径；首次启动生成 `items.json` |
 | `DOWNLOAD_ROOT` | `/app/Downloads` | Gopeed 容器内下载根目录 |
-| `FETCH_INTERVAL_MS` | `1200` | 元数据抓取间隔 |
+| `FETCH_INTERVAL_MS` | `1200` | 每个采集线程的抓取间隔 |
+| `FETCH_CONCURRENCY` | `4` | 采集并发线程数（1–10） |
 | `CONNECTIONS` | `16` | Gopeed 下载连接数 |
 
 ## API
 
 - `GET /api/items?q=&category=&doodOnly=&page=&pageSize=`
+- `POST /api/items/reload`（强制重新读取 Excel）
 - `GET /api/meta/:id`（`?refresh=1` 强制刷新）
 - `GET /api/image/:id`（本地图片缓存，未命中时下载并落盘）
 - `POST /api/download/:id`

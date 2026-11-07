@@ -55,6 +55,14 @@ export function initMetaStore() {
       error TEXT NOT NULL,
       at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS prefetch_progress (
+      mode TEXT PRIMARY KEY,
+      total INTEGER NOT NULL,
+      done INTEGER NOT NULL,
+      errors INTEGER NOT NULL,
+      started_at INTEGER,
+      updated_at INTEGER
+    );
   `);
   migrateMetaJson();
   return db;
@@ -229,20 +237,76 @@ export function lastFailure() {
   return row || null;
 }
 
+export function loadPrefetchState() {
+  const main = db
+    .prepare(
+      "SELECT mode, total, done, errors, started_at, updated_at FROM prefetch_progress " +
+        "WHERE mode IN ('missing','refresh') ORDER BY updated_at DESC LIMIT 1"
+    )
+    .get();
+  if (main) return main;
+  return (
+    db
+      .prepare(
+        "SELECT mode, total, done, errors, started_at, updated_at FROM prefetch_progress ORDER BY updated_at DESC LIMIT 1"
+      )
+      .get() || null
+  );
+}
+
+export function savePrefetchState(state) {
+  db.prepare(
+    "INSERT INTO prefetch_progress (mode, total, done, errors, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(mode) DO UPDATE SET total=excluded.total, done=excluded.done, errors=excluded.errors, started_at=excluded.started_at, updated_at=excluded.updated_at"
+  ).run(
+    String(state.mode || ""),
+    Number(state.total) || 0,
+    Number(state.done) || 0,
+    Number(state.errors) || 0,
+    state.startedAt || null,
+    Date.now()
+  );
+}
+
+function sortItemsDesc(list) {
+  return list.slice().sort((a, b) => {
+    if (a.libId == null && b.libId == null) {
+      return String(b.name || "").localeCompare(String(a.name || ""));
+    }
+    if (a.libId == null) return 1;
+    if (b.libId == null) return -1;
+    return b.libId - a.libId;
+  });
+}
+
 export function loadItems() {
   ensureDir();
   if (fs.existsSync(ITEMS_FILE)) {
     const items = readJson(ITEMS_FILE, null);
-    if (Array.isArray(items)) return items;
+    if (Array.isArray(items)) {
+      console.log("[dood] index loaded from items.json (Excel not read)");
+      return sortItemsDesc(items);
+    }
   }
-  const excelPath = String(process.env.EXCEL_PATH || "").trim();
-  if (!excelPath) {
+  if (!String(process.env.EXCEL_PATH || "").trim()) {
     return [];
   }
-  const items = parseExcel(excelPath);
+  return rebuildItemsFromExcel();
+}
+
+export function rebuildItemsFromExcel() {
+  const excelPath = String(process.env.EXCEL_PATH || "").trim();
+  if (!excelPath) {
+    throw new Error("未配置 EXCEL_PATH，无法读取 Excel");
+  }
+  if (!fs.existsSync(excelPath)) {
+    throw new Error("Excel 文件不存在: " + excelPath);
+  }
+  const items = sortItemsDesc(parseExcel(excelPath));
   const tmp = ITEMS_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(items));
   fs.renameSync(tmp, ITEMS_FILE);
+  console.log(`[dood] index rebuilt from Excel: ${items.length} items`);
   return items;
 }
 
@@ -251,6 +315,7 @@ const DEFAULT_SETTINGS = {
   apiToken: "",
   downloadRoot: process.env.DOWNLOAD_ROOT || "/app/Downloads",
   fetchIntervalMs: Number(process.env.FETCH_INTERVAL_MS || 1200),
+  fetchConcurrency: Number(process.env.FETCH_CONCURRENCY || 4),
   connections: Number(process.env.CONNECTIONS || 16),
 };
 
@@ -261,6 +326,10 @@ export function loadSettings() {
   merged.fetchIntervalMs = Math.max(
     200,
     Math.min(30000, Number(merged.fetchIntervalMs) || 1200)
+  );
+  merged.fetchConcurrency = Math.max(
+    1,
+    Math.min(10, Number(merged.fetchConcurrency) || 4)
   );
   merged.connections = Math.max(1, Math.min(32, Number(merged.connections) || 16));
   return merged;
@@ -274,6 +343,7 @@ export function saveSettings(input) {
     "apiToken",
     "downloadRoot",
     "fetchIntervalMs",
+    "fetchConcurrency",
     "connections",
   ]) {
     if (input[key] !== undefined) next[key] = input[key];
@@ -281,6 +351,10 @@ export function saveSettings(input) {
   next.fetchIntervalMs = Math.max(
     200,
     Math.min(30000, Number(next.fetchIntervalMs) || current.fetchIntervalMs)
+  );
+  next.fetchConcurrency = Math.max(
+    1,
+    Math.min(10, Number(next.fetchConcurrency) || current.fetchConcurrency)
   );
   next.connections = Math.max(1, Math.min(32, Number(next.connections) || 16));
   const tmp = SETTINGS_FILE + ".tmp";

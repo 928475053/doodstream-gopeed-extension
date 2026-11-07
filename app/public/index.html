@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1015" />
   <title>Spanking Library 下载库</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -76,6 +77,11 @@
           <small>站点 robots.txt 建议 Crawl-delay: 30（30000ms）；按需调大。</small>
         </label>
         <label>
+          <span>采集并发（线程数）</span>
+          <input id="set-concurrency" type="number" min="1" max="10" />
+          <small>每个线程独立等待抓取间隔；实际速率约等于 并发 ÷ 间隔。</small>
+        </label>
+        <label>
           <span>下载连接数</span>
           <input id="set-connections" type="number" min="1" max="32" />
         </label>
@@ -100,6 +106,20 @@
         </div>
         <div class="progress"><div id="prefetch-bar" class="progress-bar"></div></div>
         <p id="prefetch-status" class="prefetch-status">未开始</p>
+      </div>
+
+      <hr />
+
+      <div class="index-tools">
+        <div class="prefetch-head">
+          <h3>索引</h3>
+          <div class="prefetch-actions">
+            <button id="reload-index" type="button" class="ghost">强制重新读取 Excel</button>
+          </div>
+        </div>
+        <p id="index-status" class="prefetch-status">
+          首次启动读取 Excel 并生成 items.json，之后直接使用缓存；只有点击上面的按钮才会重新读取。
+        </p>
       </div>
     </form>
   </dialog>

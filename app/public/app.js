@@ -348,6 +348,7 @@ async function fillSettings() {
     $("#set-token").value = data.settings.apiToken || "";
     $("#set-root").value = data.settings.downloadRoot || "/app/Downloads";
     $("#set-interval").value = data.settings.fetchIntervalMs || 1200;
+    $("#set-concurrency").value = data.settings.fetchConcurrency || 4;
     $("#set-connections").value = data.settings.connections || 16;
   } catch (err) {
     toast(err.message, true);
@@ -382,7 +383,9 @@ function renderPrefetch(status) {
     : "";
   text.textContent = `${status.running ? mode + "中" : "已停止"} · ${status.done}/${
     status.total
-  }（本次失败 ${status.errors}，累计 ${failed}）${current}${last}`;
+  }（本次失败 ${status.errors}，累计 ${failed}）${
+    status.concurrency ? ` · 并发 ${status.concurrency}` : ""
+  }${current}${last}`;
 }
 
 async function pollPrefetch() {
@@ -412,6 +415,7 @@ $("#save-settings").addEventListener("click", async () => {
     apiToken: $("#set-token").value,
     downloadRoot: $("#set-root").value.trim() || "/app/Downloads",
     fetchIntervalMs: Number($("#set-interval").value) || 1200,
+    fetchConcurrency: Number($("#set-concurrency").value) || 4,
     connections: Number($("#set-connections").value) || 16,
   };
   try {
@@ -504,6 +508,26 @@ $("#prefetch-stop").addEventListener("click", () =>
     "正在停止…"
   )
 );
+
+$("#reload-index").addEventListener("click", async () => {
+  const button = $("#reload-index");
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "读取中…";
+  try {
+    const data = await api("/api/items/reload", { method: "POST" });
+    $("#index-status").textContent = `上次重新读取：${data.items.toLocaleString()} 条（${data.withDood.toLocaleString()} 条可下载）`;
+    toast(`索引已更新：${data.items.toLocaleString()} 条`);
+    state.page = 1;
+    await Promise.all([loadStats(), loadCategories()]);
+    load();
+  } catch (err) {
+    toast(`重新读取 Excel 失败：${err.message}`, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
 
 dialog.addEventListener("close", () => {
   clearTimeout(prefetchTimer);
