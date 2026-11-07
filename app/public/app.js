@@ -362,13 +362,21 @@ document.addEventListener("click", (event) => {
   closeFacets();
 });
 
-window.addEventListener("resize", () => {
-  if (openFacetKind) closeFacets();
-});
+let facetPositionFrame = null;
 
-window.addEventListener("scroll", () => {
-  if (openFacetKind) closeFacets();
-});
+function repositionOpenFacet() {
+  if (!openFacetKind) return;
+  if (facetPositionFrame) cancelAnimationFrame(facetPositionFrame);
+  facetPositionFrame = requestAnimationFrame(() => {
+    facetPositionFrame = null;
+    if (openFacetKind) positionFacetPanel(openFacetKind);
+  });
+}
+
+// Mobile keyboards fire resize and the browser may scroll the focused search
+// input into view. Reposition instead of closing so typing is not interrupted.
+window.addEventListener("resize", repositionOpenFacet);
+window.addEventListener("scroll", repositionOpenFacet, true);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && openFacetKind) closeFacets();
