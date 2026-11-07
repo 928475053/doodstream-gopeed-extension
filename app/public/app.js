@@ -524,9 +524,11 @@ function renderPrefetch(status) {
     text.textContent = failed ? `未开始 · 累计失败 ${failed}` : "未开始";
     return;
   }
-  const percent = status.total
-    ? Math.min(100, Math.round((status.done / status.total) * 100))
-    : 0;
+  const rawPercent = status.total ? (status.done / status.total) * 100 : 0;
+  const percent =
+    status.done > 0 && rawPercent > 0 && rawPercent < 1
+      ? 1
+      : Math.min(100, Math.round(rawPercent));
   bar.style.width = percent + "%";
   const mode =
     status.mode === "retry" ? "重试" : status.mode === "refresh" ? "刷新" : "采集";
@@ -536,7 +538,8 @@ function renderPrefetch(status) {
   const last = status.lastError
     ? ` · 最近失败 #${status.lastError.libId} ${String(status.lastError.error).slice(0, 80)}`
     : "";
-  text.textContent = `${status.running ? mode + "中" : "已停止"} · ${status.done}/${
+  const progressLabel = status.mode === "missing" ? "总体 " : "";
+  text.textContent = `${status.running ? mode + "中" : "已停止"} · ${progressLabel}${status.done}/${
     status.total
   }（本次失败 ${status.errors}，累计 ${failed}）${
     status.concurrency ? ` · 并发 ${status.concurrency}` : ""
@@ -609,7 +612,9 @@ async function prefetchAction(path, options, zeroMsg, okMsg) {
       clearTimeout(prefetchTimer);
       prefetchTimer = setTimeout(pollPrefetch, 1500);
     }
-    if (status.total === 0 && !status.running) {
+    if (status.mode === "missing" && status.total > 0 && status.done >= status.total) {
+      toast("所有条目已采集");
+    } else if (status.total === 0 && !status.running) {
       toast(zeroMsg || "没有需要处理的条目");
     } else {
       toast(okMsg || "任务已提交");

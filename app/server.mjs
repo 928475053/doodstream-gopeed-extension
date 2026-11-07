@@ -158,11 +158,23 @@ const prefetch = {
 
 const savedPrefetch = loadPrefetchState();
 if (savedPrefetch) {
-  prefetch.mode = savedPrefetch.mode || "";
-  prefetch.total = savedPrefetch.total || 0;
-  prefetch.done = savedPrefetch.done || 0;
-  prefetch.errors = savedPrefetch.errors || 0;
-  prefetch.startedAt = savedPrefetch.started_at || null;
+  if (savedPrefetch.mode === "missing") {
+    // Recompute the overall figure so upgraded installs do not show the old
+    // "remaining tasks" progress as if it were a fresh run.
+    const eligible = items.filter((item) => item.libId && item.dood);
+    const collected = new Set(metaIds());
+    prefetch.mode = "missing";
+    prefetch.total = eligible.length;
+    prefetch.done = eligible.filter((item) => collected.has(item.libId)).length;
+    prefetch.errors = savedPrefetch.errors || 0;
+    prefetch.startedAt = savedPrefetch.started_at || null;
+  } else {
+    prefetch.mode = savedPrefetch.mode || "";
+    prefetch.total = savedPrefetch.total || 0;
+    prefetch.done = savedPrefetch.done || 0;
+    prefetch.errors = savedPrefetch.errors || 0;
+    prefetch.startedAt = savedPrefetch.started_at || null;
+  }
 }
 
 function prefetchStatus() {
@@ -181,16 +193,26 @@ function prefetchStatus() {
   };
 }
 
-async function runPrefetch(targets, mode) {
+async function runPrefetch(targets, mode, initialDone, total) {
   if (prefetch.running) return prefetchStatus();
   prefetch.running = true;
   prefetch.stopRequested = false;
-  prefetch.total = targets.length;
-  prefetch.done = 0;
+  prefetch.total = Math.max(0, Number(total) || 0);
+  prefetch.done = Math.min(
+    prefetch.total,
+    Math.max(0, Number(initialDone) || 0)
+  );
   prefetch.errors = 0;
   prefetch.startedAt = Date.now();
   prefetch.mode = mode;
   savePrefetchState(prefetch);
+
+  if (targets.length === 0) {
+    prefetch.running = false;
+    prefetch.current = null;
+    savePrefetchState(prefetch);
+    return prefetchStatus();
+  }
 
   (async () => {
     const force = mode === "refresh";
@@ -228,23 +250,27 @@ async function startPrefetch(options = {}) {
   if (prefetch.running) return prefetchStatus();
   if (options.retry) {
     const ids = new Set(failureIds());
-    const targets = items.filter(
-      (item) => item.libId && item.dood && ids.has(item.libId)
-    );
+    const eligible = items.filter((item) => item.libId && item.dood);
+    const targets = eligible.filter((item) => ids.has(item.libId));
     const matched = new Set(targets.map((item) => item.libId));
     for (const id of ids) {
       if (!matched.has(id)) removeFailure(id);
     }
-    return runPrefetch(targets, "retry");
+    return runPrefetch(targets, "retry", 0, targets.length);
   }
+
+  const eligible = items.filter((item) => item.libId && item.dood);
   const existing = new Set(metaIds());
-  const targets = items.filter(
-    (item) =>
-      item.libId &&
-      item.dood &&
-      (options.refresh || !existing.has(item.libId))
+  const targets = options.refresh
+    ? eligible
+    : eligible.filter((item) => !existing.has(item.libId));
+  const collected = options.refresh ? 0 : eligible.length - targets.length;
+  return runPrefetch(
+    targets,
+    options.refresh ? "refresh" : "missing",
+    collected,
+    eligible.length
   );
-  return runPrefetch(targets, options.refresh ? "refresh" : "missing");
 }
 
 function sendJson(res, status, data) {
