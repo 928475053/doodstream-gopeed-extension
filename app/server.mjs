@@ -10,7 +10,8 @@ import {
   failureIds,
   folderFor,
   getMeta,
-  idsByTag,
+  idsByStores,
+  idsByTagsAll,
   initMetaStore,
   joinDownloadPath,
   lastFailure,
@@ -26,6 +27,7 @@ import {
   saveSettings,
   setMeta,
   setMetaImage,
+  storeCounts,
   tagCounts,
 } from "./lib/store.mjs";
 import { fetchClip } from "./lib/library.mjs";
@@ -303,8 +305,17 @@ function itemView(item) {
 
 function filterItems(searchParams) {
   const q = String(searchParams.get("q") || "").trim().toLowerCase();
-  const category = String(searchParams.get("category") || "").trim();
   const doodOnly = searchParams.get("doodOnly") !== "0";
+  const tags = searchParams
+    .getAll("tag")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const legacyCategory = String(searchParams.get("category") || "").trim();
+  if (legacyCategory) tags.push(legacyCategory);
+  const stores = searchParams
+    .getAll("store")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   let result = items;
   if (doodOnly) result = result.filter((item) => item.dood);
@@ -316,8 +327,12 @@ function filterItems(searchParams) {
         item.title.toLowerCase().includes(q)
     );
   }
-  if (category) {
-    const ids = new Set(idsByTag(category));
+  if (stores.length > 0) {
+    const ids = new Set(idsByStores(stores));
+    result = result.filter((item) => ids.has(item.libId));
+  }
+  if (tags.length > 0) {
+    const ids = new Set(idsByTagsAll(tags));
     result = result.filter((item) => ids.has(item.libId));
   }
   return result;
@@ -363,6 +378,16 @@ async function handleApi(req, res, url) {
 
   if (pathname === "/api/categories") {
     sendJson(res, 200, { categories: categoryList() });
+    return;
+  }
+
+  if (pathname === "/api/stores") {
+    sendJson(res, 200, {
+      stores: storeCounts().map((row) => ({
+        name: row.name,
+        count: row.count,
+      })),
+    });
     return;
   }
 

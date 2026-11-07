@@ -8,7 +8,8 @@
 - 按 ID 抓取 `https://www.spankinglibrary.com/clipdetails.php?id=<ID>`：
   - 截图（og:image + 多张预览图）
   - 价格、Store、分类标签、分辨率、时长、简介
-- 卡片式浏览：搜索、标签筛选、分页，按 ID 倒序（新内容在前）
+- 卡片式浏览：搜索、分页，按 ID 倒序（新内容在前）
+- 筛选：Store 和标签都支持多选；Store 多选为任一匹配，标签多选为同时包含（AND），两个维度之间同时满足
 - 手机端适配：单列卡片、全屏设置面板、底部翻页、更大的触控区域
 - Excel 只在首次启动或手动「强制重新读取 Excel」时解析，之后直接使用 `items.json`
 - 元数据懒加载 + SQLite 持久化；后台采集支持并发、断点续采、进度持久化和失败重试
@@ -118,6 +119,10 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
   - 目录：`/app/Downloads/NORTHERN SPANKING FILMS`
   - 路径是 **Gopeed 容器内路径**，不是宿主机路径。
 - 标签筛选只统计已采集的条目；未采集的条目在滚动时自动补全。
+- Store / 标签筛选说明：
+  - 多个 Store：任一匹配（OR）
+  - 多个标签：同时包含（AND）
+  - Store 与标签之间：同时满足（AND）
 
 ## 后台采集
 
@@ -142,6 +147,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 - `meta`：每条元数据按 ID 增量 upsert
 - `meta_tags`：标签索引，用于筛选和统计
+- `meta_stores`：Store 索引，用于筛选和统计
 - `failures`：采集失败记录，供「重试失败」使用
 - `prefetch_progress`：后台采集进度（按采集/刷新/重试分别保存），重启后继续显示
 
@@ -161,7 +167,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 ## API
 
-- `GET /api/items?q=&category=&doodOnly=&page=&pageSize=`
+- `GET /api/items?q=&tag=&tag=&store=&store=&doodOnly=&page=&pageSize=`
 - `POST /api/items/reload`（强制重新读取 Excel）
 - `GET /api/meta/:id`（`?refresh=1` 强制刷新）
 - `GET /api/image/:id`（本地图片缓存，未命中时下载并落盘）
@@ -169,7 +175,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 - `GET/POST /api/settings`
 - `POST /api/settings/test`
 - `POST /api/prefetch/start|stop|retry`、`GET /api/prefetch/status`
-- `GET /api/categories`（返回已采集的标签及数量）、`GET /api/stats`、`GET /api/health`
+- `GET /api/categories`（返回已采集的标签及数量）、`GET /api/stores`（返回已采集的 Store 及数量）、`GET /api/stats`、`GET /api/health`
 
 Gopeed 地址和 Token 只保存在 `/data/settings.json`，由页面填写，不通过环境变量内置。
 

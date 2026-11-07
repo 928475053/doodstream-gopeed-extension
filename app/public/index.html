@@ -26,9 +26,33 @@
   <section class="toolbar">
     <div class="filters">
       <label class="check"><input id="dood-only" type="checkbox" checked /> 仅有 Dood 链接</label>
-      <select id="category">
-        <option value="">全部标签（已采集）</option>
-      </select>
+
+      <div class="facet" id="store-facet">
+        <button type="button" class="facet-btn" id="store-btn" aria-expanded="false">Store：全部</button>
+        <div class="facet-panel" id="store-panel">
+          <input id="store-search" class="facet-search" type="search" placeholder="搜索 Store" autocomplete="off" />
+          <div class="facet-options" id="store-options"></div>
+          <p class="facet-hint">Store 多选为任一匹配；与标签之间同时满足。</p>
+          <div class="facet-actions">
+            <button type="button" class="ghost" id="store-clear">清空</button>
+            <button type="button" class="primary" id="store-done">完成</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="facet" id="tag-facet">
+        <button type="button" class="facet-btn" id="tag-btn" aria-expanded="false">标签：全部</button>
+        <div class="facet-panel" id="tag-panel">
+          <input id="tag-search" class="facet-search" type="search" placeholder="搜索标签" autocomplete="off" />
+          <div class="facet-options" id="tag-options"></div>
+          <p class="facet-hint">标签多选为同时包含（AND）；与 Store 之间同时满足。</p>
+          <div class="facet-actions">
+            <button type="button" class="ghost" id="tag-clear">清空</button>
+            <button type="button" class="primary" id="tag-done">完成</button>
+          </div>
+        </div>
+      </div>
+
       <select id="page-size">
         <option value="24">24 / 页</option>
         <option value="48">48 / 页</option>

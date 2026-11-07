@@ -3,7 +3,8 @@ const state = {
   pageSize: 24,
   q: "",
   doodOnly: true,
-  category: "",
+  tags: new Set(),
+  stores: new Set(),
   total: 0,
   pages: 1,
 };
@@ -188,24 +189,191 @@ async function loadStats() {
   }
 }
 
-async function loadCategories() {
-  try {
-    const data = await api("/api/categories");
-    const select = $("#category");
-    const current = select.value;
-    select.innerHTML =
-      `<option value="">全部标签（已采集）</option>` +
-      data.categories
+const facetData = { tag: [], store: [] };
+let openFacetKind = null;
+let filterTimer = null;
+
+function selectedSet(kind) {
+  return kind === "tag" ? state.tags : state.stores;
+}
+
+function facetLabel(kind) {
+  return kind === "tag" ? "标签" : "Store";
+}
+
+function updateFacetButton(kind) {
+  const selected = selectedSet(kind);
+  const button = document.querySelector(`#${kind}-btn`);
+  if (!button) return;
+  button.textContent = selected.size
+    ? `${facetLabel(kind)}：${selected.size} 项`
+    : `${facetLabel(kind)}：全部`;
+  button.classList.toggle("active", selected.size > 0);
+}
+
+function renderFacetOptions(kind) {
+  const container = document.querySelector(`#${kind}-options`);
+  if (!container) return;
+  const search = document
+    .querySelector(`#${kind}-search`)
+    .value.trim()
+    .toLowerCase();
+  const selected = selectedSet(kind);
+  const list = facetData[kind].filter(
+    (entry) => !search || String(entry.name).toLowerCase().includes(search)
+  );
+  container.innerHTML = list.length
+    ? list
         .map(
-          (category) =>
-            `<option value="${esc(category.name)}">${esc(category.name)} (${category.count})</option>`
+          (entry) => `
+          <label class="facet-option">
+            <input type="checkbox" value="${esc(entry.name)}" ${
+              selected.has(entry.name) ? "checked" : ""
+            } />
+            <span class="facet-name" title="${esc(entry.name)}">${esc(entry.name)}</span>
+            <span class="facet-count">${entry.count}</span>
+          </label>`
         )
-        .join("");
-    select.value = current;
+        .join("")
+    : `<div class="facet-empty">没有匹配项</div>`;
+  updateFacetButton(kind);
+}
+
+async function loadFacets() {
+  try {
+    const [tagData, storeData] = await Promise.all([
+      api("/api/categories"),
+      api("/api/stores"),
+    ]);
+    facetData.tag = tagData.categories || [];
+    facetData.store = storeData.stores || [];
+    for (const kind of ["tag", "store"]) {
+      const names = new Set(facetData[kind].map((entry) => entry.name));
+      for (const value of [...selectedSet(kind)]) {
+        if (!names.has(value)) selectedSet(kind).delete(value);
+      }
+      renderFacetOptions(kind);
+    }
   } catch {
     // ignore
   }
 }
+
+function positionFacetPanel(kind) {
+  const button = document.querySelector(`#${kind}-btn`);
+  const panel = document.querySelector(`#${kind}-panel`);
+  if (!button || !panel) return;
+  const rect = button.getBoundingClientRect();
+  const margin = 12;
+  const top = Math.max(margin, Math.round(rect.bottom + 6));
+  panel.style.position = "fixed";
+  panel.style.top = top + "px";
+  panel.style.maxHeight =
+    Math.max(220, window.innerHeight - top - margin) + "px";
+  if (window.innerWidth <= 720) {
+    panel.style.left = margin + "px";
+    panel.style.right = margin + "px";
+    panel.style.width = "auto";
+  } else {
+    const width = 360;
+    const left = Math.min(
+      Math.max(margin, rect.left),
+      window.innerWidth - width - margin
+    );
+    panel.style.left = left + "px";
+    panel.style.right = "auto";
+    panel.style.width = width + "px";
+  }
+}
+
+function closeFacets() {
+  for (const kind of ["tag", "store"]) {
+    const facet = document.querySelector(`#${kind}-facet`);
+    const button = document.querySelector(`#${kind}-btn`);
+    const panel = document.querySelector(`#${kind}-panel`);
+    if (facet) facet.classList.remove("open");
+    if (button) button.setAttribute("aria-expanded", "false");
+    if (panel) panel.removeAttribute("style");
+  }
+  openFacetKind = null;
+}
+
+function openFacet(kind) {
+  if (openFacetKind === kind) {
+    closeFacets();
+    return;
+  }
+  closeFacets();
+  const facet = document.querySelector(`#${kind}-facet`);
+  const button = document.querySelector(`#${kind}-btn`);
+  if (!facet || !button) return;
+  facet.classList.add("open");
+  button.setAttribute("aria-expanded", "true");
+  openFacetKind = kind;
+  renderFacetOptions(kind);
+  positionFacetPanel(kind);
+}
+
+function scheduleFilterReload() {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => {
+    state.page = 1;
+    load();
+  }, 350);
+}
+
+for (const kind of ["tag", "store"]) {
+  document.querySelector(`#${kind}-btn`).addEventListener("click", (event) => {
+    event.stopPropagation();
+    openFacet(kind);
+  });
+  document
+    .querySelector(`#${kind}-options`)
+    .addEventListener("change", (event) => {
+      const checkbox = event.target.closest('input[type="checkbox"]');
+      if (!checkbox) return;
+      if (checkbox.checked) selectedSet(kind).add(checkbox.value);
+      else selectedSet(kind).delete(checkbox.value);
+      updateFacetButton(kind);
+      scheduleFilterReload();
+    });
+  document
+    .querySelector(`#${kind}-search`)
+    .addEventListener("input", () => renderFacetOptions(kind));
+  document
+    .querySelector(`#${kind}-clear`)
+    .addEventListener("click", () => {
+      selectedSet(kind).clear();
+      for (const checkbox of document.querySelectorAll(
+        `#${kind}-options input[type="checkbox"]`
+      )) {
+        checkbox.checked = false;
+      }
+      updateFacetButton(kind);
+      scheduleFilterReload();
+    });
+  document
+    .querySelector(`#${kind}-done`)
+    .addEventListener("click", () => closeFacets());
+}
+
+document.addEventListener("click", (event) => {
+  if (!openFacetKind) return;
+  if (event.target.closest(".facet")) return;
+  closeFacets();
+});
+
+window.addEventListener("resize", () => {
+  if (openFacetKind) closeFacets();
+});
+
+window.addEventListener("scroll", () => {
+  if (openFacetKind) closeFacets();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && openFacetKind) closeFacets();
+});
 
 async function load() {
   grid.innerHTML = `<div class="empty">加载中…</div>`;
@@ -219,7 +387,8 @@ async function load() {
     doodOnly: state.doodOnly ? "1" : "0",
   });
   if (state.q) params.set("q", state.q);
-  if (state.category) params.set("category", state.category);
+  for (const tag of state.tags) params.append("tag", tag);
+  for (const store of state.stores) params.append("store", store);
 
   try {
     const data = await api("/api/items?" + params.toString());
@@ -308,12 +477,6 @@ $("#dood-only").addEventListener("change", (event) => {
   load();
 });
 
-$("#category").addEventListener("change", (event) => {
-  state.category = event.target.value;
-  state.page = 1;
-  load();
-});
-
 $("#page-size").addEventListener("change", (event) => {
   state.pageSize = Number(event.target.value) || 24;
   state.page = 1;
@@ -335,7 +498,7 @@ $("#next").addEventListener("click", () => {
 });
 
 $("#refresh").addEventListener("click", async () => {
-  await Promise.all([loadStats(), loadCategories()]);
+  await Promise.all([loadStats(), loadFacets()]);
   load();
 });
 
@@ -519,7 +682,7 @@ $("#reload-index").addEventListener("click", async () => {
     $("#index-status").textContent = `上次重新读取：${data.items.toLocaleString()} 条（${data.withDood.toLocaleString()} 条可下载）`;
     toast(`索引已更新：${data.items.toLocaleString()} 条`);
     state.page = 1;
-    await Promise.all([loadStats(), loadCategories()]);
+    await Promise.all([loadStats(), loadFacets()]);
     load();
   } catch (err) {
     toast(`重新读取 Excel 失败：${err.message}`, true);
@@ -535,5 +698,5 @@ dialog.addEventListener("close", () => {
 });
 
 loadStats();
-loadCategories();
+loadFacets();
 load();

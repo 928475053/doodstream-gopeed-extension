@@ -50,6 +50,12 @@ export function initMetaStore() {
       PRIMARY KEY (lib_id, tag)
     );
     CREATE INDEX IF NOT EXISTS idx_meta_tags_tag ON meta_tags(tag);
+    CREATE TABLE IF NOT EXISTS meta_stores (
+      lib_id INTEGER NOT NULL,
+      store TEXT NOT NULL,
+      PRIMARY KEY (lib_id, store)
+    );
+    CREATE INDEX IF NOT EXISTS idx_meta_stores_store ON meta_stores(store);
     CREATE TABLE IF NOT EXISTS failures (
       lib_id INTEGER PRIMARY KEY,
       error TEXT NOT NULL,
@@ -65,7 +71,34 @@ export function initMetaStore() {
     );
   `);
   migrateMetaJson();
+  backfillStores();
   return db;
+}
+
+function backfillStores() {
+  const stores = db.prepare("SELECT COUNT(*) AS c FROM meta_stores").get().c;
+  if (stores > 0) return;
+  const rows = db.prepare("SELECT lib_id, data FROM meta").all();
+  if (rows.length === 0) return;
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO meta_stores (lib_id, store) VALUES (?, ?)"
+  );
+  db.exec("BEGIN");
+  try {
+    for (const row of rows) {
+      let value;
+      try {
+        value = JSON.parse(row.data);
+      } catch {
+        continue;
+      }
+      if (value && value.store) insert.run(row.lib_id, value.store);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 }
 
 function migrateMetaJson() {
@@ -82,6 +115,9 @@ function migrateMetaJson() {
   const insertTag = db.prepare(
     "INSERT OR IGNORE INTO meta_tags (lib_id, tag) VALUES (?, ?)"
   );
+  const insertStore = db.prepare(
+    "INSERT OR IGNORE INTO meta_stores (lib_id, store) VALUES (?, ?)"
+  );
   db.exec("BEGIN");
   try {
     for (const [key, value] of entries) {
@@ -97,6 +133,7 @@ function migrateMetaJson() {
       for (const category of value.categories || []) {
         if (category && category.name) insertTag.run(id, category.name);
       }
+      if (value.store) insertStore.run(id, value.store);
     }
     db.exec("COMMIT");
     fs.renameSync(META_FILE, META_FILE + ".migrated");
@@ -133,6 +170,10 @@ export function setMeta(libId, value) {
   const insertTag = db.prepare(
     "INSERT OR IGNORE INTO meta_tags (lib_id, tag) VALUES (?, ?)"
   );
+  const deleteStore = db.prepare("DELETE FROM meta_stores WHERE lib_id = ?");
+  const insertStore = db.prepare(
+    "INSERT OR IGNORE INTO meta_stores (lib_id, store) VALUES (?, ?)"
+  );
   const deleteFailure = db.prepare("DELETE FROM failures WHERE lib_id = ?");
 
   db.exec("BEGIN");
@@ -146,6 +187,8 @@ export function setMeta(libId, value) {
     );
     deleteTags.run(id);
     for (const tag of tags) insertTag.run(id, tag);
+    deleteStore.run(id);
+    if (value.store) insertStore.run(id, value.store);
     deleteFailure.run(id);
     db.exec("COMMIT");
   } catch (err) {
@@ -189,10 +232,35 @@ export function tagCounts() {
     .all();
 }
 
-export function idsByTag(tag) {
+export function idsByTagsAll(tags) {
+  const list = [...new Set(tags.map((tag) => String(tag)).filter(Boolean))];
+  if (list.length === 0) return [];
+  const placeholders = list.map(() => "?").join(",");
   return db
-    .prepare("SELECT lib_id FROM meta_tags WHERE tag = ?")
-    .all(String(tag))
+    .prepare(
+      `SELECT lib_id FROM meta_tags WHERE tag IN (${placeholders}) GROUP BY lib_id HAVING COUNT(DISTINCT tag) = ?`
+    )
+    .all(...list, list.length)
+    .map((row) => row.lib_id);
+}
+
+export function storeCounts() {
+  return db
+    .prepare(
+      "SELECT store AS name, COUNT(*) AS count FROM meta_stores GROUP BY store ORDER BY count DESC, name ASC"
+    )
+    .all();
+}
+
+export function idsByStores(stores) {
+  const list = [...new Set(stores.map((store) => String(store)).filter(Boolean))];
+  if (list.length === 0) return [];
+  const placeholders = list.map(() => "?").join(",");
+  return db
+    .prepare(
+      `SELECT DISTINCT lib_id FROM meta_stores WHERE store IN (${placeholders})`
+    )
+    .all(...list)
     .map((row) => row.lib_id);
 }
 
