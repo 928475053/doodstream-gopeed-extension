@@ -309,14 +309,14 @@ export function loadPrefetchState() {
   const main = db
     .prepare(
       "SELECT mode, total, done, errors, started_at, updated_at FROM prefetch_progress " +
-        "WHERE mode IN ('missing','refresh') ORDER BY updated_at DESC LIMIT 1"
+        "WHERE mode = 'missing' ORDER BY updated_at DESC LIMIT 1"
     )
     .get();
   if (main) return main;
   return (
     db
       .prepare(
-        "SELECT mode, total, done, errors, started_at, updated_at FROM prefetch_progress ORDER BY updated_at DESC LIMIT 1"
+        "SELECT mode, total, done, errors, started_at, updated_at FROM prefetch_progress WHERE mode = 'retry' ORDER BY updated_at DESC LIMIT 1"
       )
       .get() || null
   );

@@ -530,8 +530,7 @@ function renderPrefetch(status) {
       ? 1
       : Math.min(100, Math.round(rawPercent));
   bar.style.width = percent + "%";
-  const mode =
-    status.mode === "retry" ? "重试" : status.mode === "refresh" ? "刷新" : "采集";
+  const mode = status.mode === "retry" ? "重试" : "采集";
   const current = status.current
     ? ` · 当前 #${status.current.libId} ${status.current.title}`
     : "";
@@ -635,19 +634,6 @@ $("#prefetch-start").addEventListener("click", () =>
     },
     "没有需要采集的条目",
     "后台采集已启动"
-  )
-);
-
-$("#prefetch-start-refresh").addEventListener("click", () =>
-  prefetchAction(
-    "/api/prefetch/start",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh: true }),
-    },
-    "没有需要刷新的条目",
-    "刷新任务已启动"
   )
 );
 

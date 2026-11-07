@@ -215,7 +215,6 @@ async function runPrefetch(targets, mode, initialDone, total) {
   }
 
   (async () => {
-    const force = mode === "refresh";
     const workers = Math.max(
       1,
       Math.min(metaConcurrency(), targets.length || 1)
@@ -227,7 +226,7 @@ async function runPrefetch(targets, mode, initialDone, total) {
         const item = targets[index++];
         prefetch.current = { libId: item.libId, title: item.title };
         try {
-          await enqueueMeta(item.libId, force);
+          await enqueueMeta(item.libId);
           prefetch.done++;
         } catch {
           prefetch.errors++;
@@ -261,16 +260,9 @@ async function startPrefetch(options = {}) {
 
   const eligible = items.filter((item) => item.libId && item.dood);
   const existing = new Set(metaIds());
-  const targets = options.refresh
-    ? eligible
-    : eligible.filter((item) => !existing.has(item.libId));
-  const collected = options.refresh ? 0 : eligible.length - targets.length;
-  return runPrefetch(
-    targets,
-    options.refresh ? "refresh" : "missing",
-    collected,
-    eligible.length
-  );
+  const targets = eligible.filter((item) => !existing.has(item.libId));
+  const collected = eligible.length - targets.length;
+  return runPrefetch(targets, "missing", collected, eligible.length);
 }
 
 function sendJson(res, status, data) {
@@ -613,12 +605,8 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === "/api/prefetch/start" && req.method === "POST") {
-    const body = await readBody(req).catch(() => "{}");
-    let input = {};
-    try {
-      input = JSON.parse(body || "{}");
-    } catch {}
-    sendJson(res, 200, await startPrefetch({ refresh: !!input.refresh }));
+    await readBody(req).catch(() => {});
+    sendJson(res, 200, await startPrefetch());
     return;
   }
 
