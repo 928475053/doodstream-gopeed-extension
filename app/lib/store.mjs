@@ -69,10 +69,82 @@ export function initMetaStore() {
       started_at INTEGER,
       updated_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS downloads (
+      lib_id INTEGER PRIMARY KEY,
+      task_id TEXT,
+      name TEXT,
+      path TEXT,
+      at INTEGER NOT NULL
+    );
   `);
   migrateMetaJson();
   backfillStores();
+  ensureMetaColumns();
   return db;
+}
+
+function parsePrice(value) {
+  const number = Number.parseFloat(
+    String(value == null ? "" : value).replace(/[^0-9.]/g, "")
+  );
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseDurationSeconds(value) {
+  const text = String(value == null ? "" : value).trim();
+  if (!text) return null;
+  const parts = text.split(":").map((part) => Number(part));
+  if (parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+  if (parts.length === 2) return Math.round(parts[0] * 60 + parts[1]);
+  if (parts.length === 3) {
+    return Math.round(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  }
+  return null;
+}
+
+function ensureMetaColumns() {
+  const columns = db
+    .prepare("PRAGMA table_info(meta)")
+    .all()
+    .map((column) => column.name);
+  let added = false;
+  if (!columns.includes("price")) {
+    db.exec("ALTER TABLE meta ADD COLUMN price REAL");
+    added = true;
+  }
+  if (!columns.includes("duration_seconds")) {
+    db.exec("ALTER TABLE meta ADD COLUMN duration_seconds INTEGER");
+    added = true;
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_meta_price ON meta(price)");
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_meta_duration ON meta(duration_seconds)"
+  );
+  if (!added) return;
+
+  const update = db.prepare(
+    "UPDATE meta SET price = ?, duration_seconds = ? WHERE lib_id = ?"
+  );
+  db.exec("BEGIN");
+  try {
+    for (const row of db.prepare("SELECT lib_id, data FROM meta").all()) {
+      let value;
+      try {
+        value = JSON.parse(row.data);
+      } catch {
+        continue;
+      }
+      update.run(
+        parsePrice(value.price),
+        parseDurationSeconds(value.length),
+        row.lib_id
+      );
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 }
 
 function backfillStores() {
@@ -110,7 +182,7 @@ function migrateMetaJson() {
   if (entries.length === 0) return;
 
   const insert = db.prepare(
-    "INSERT OR REPLACE INTO meta (lib_id, data, image_file, image_mime, updated_at) VALUES (?, ?, ?, ?, ?)"
+    "INSERT OR REPLACE INTO meta (lib_id, data, image_file, image_mime, price, duration_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
   const insertTag = db.prepare(
     "INSERT OR IGNORE INTO meta_tags (lib_id, tag) VALUES (?, ?)"
@@ -128,6 +200,8 @@ function migrateMetaJson() {
         JSON.stringify(value),
         value.imageFile || null,
         value.imageMime || null,
+        parsePrice(value.price),
+        parseDurationSeconds(value.length),
         value.fetchedAt || Date.now()
       );
       for (const category of value.categories || []) {
@@ -163,8 +237,8 @@ export function setMeta(libId, value) {
     (value.categories || []).map((category) => category && category.name).filter(Boolean)
   );
   const insert = db.prepare(
-    "INSERT INTO meta (lib_id, data, image_file, image_mime, updated_at) VALUES (?, ?, ?, ?, ?) " +
-      "ON CONFLICT(lib_id) DO UPDATE SET data=excluded.data, image_file=excluded.image_file, image_mime=excluded.image_mime, updated_at=excluded.updated_at"
+    "INSERT INTO meta (lib_id, data, image_file, image_mime, price, duration_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(lib_id) DO UPDATE SET data=excluded.data, image_file=excluded.image_file, image_mime=excluded.image_mime, price=excluded.price, duration_seconds=excluded.duration_seconds, updated_at=excluded.updated_at"
   );
   const deleteTags = db.prepare("DELETE FROM meta_tags WHERE lib_id = ?");
   const insertTag = db.prepare(
@@ -183,6 +257,8 @@ export function setMeta(libId, value) {
       JSON.stringify(value),
       value.imageFile || null,
       value.imageMime || null,
+      parsePrice(value.price),
+      parseDurationSeconds(value.length),
       now
     );
     deleteTags.run(id);
@@ -261,6 +337,62 @@ export function idsByStores(stores) {
       `SELECT DISTINCT lib_id FROM meta_stores WHERE store IN (${placeholders})`
     )
     .all(...list)
+    .map((row) => row.lib_id);
+}
+
+export function idsByPrice(min, max) {
+  const clauses = [];
+  const args = [];
+  if (min != null) {
+    clauses.push("price >= ?");
+    args.push(min);
+  }
+  if (max != null) {
+    clauses.push("price <= ?");
+    args.push(max);
+  }
+  if (clauses.length === 0) return [];
+  return db
+    .prepare(`SELECT lib_id FROM meta WHERE ${clauses.join(" AND ")}`)
+    .all(...args)
+    .map((row) => row.lib_id);
+}
+
+export function idsByDuration(minSeconds, maxSeconds) {
+  const clauses = [];
+  const args = [];
+  if (minSeconds != null) {
+    clauses.push("duration_seconds >= ?");
+    args.push(minSeconds);
+  }
+  if (maxSeconds != null) {
+    clauses.push("duration_seconds <= ?");
+    args.push(maxSeconds);
+  }
+  if (clauses.length === 0) return [];
+  return db
+    .prepare(`SELECT lib_id FROM meta WHERE ${clauses.join(" AND ")}`)
+    .all(...args)
+    .map((row) => row.lib_id);
+}
+
+export function recordDownload(libId, info) {
+  db.prepare(
+    "INSERT INTO downloads (lib_id, task_id, name, path, at) VALUES (?, ?, ?, ?, ?) " +
+      "ON CONFLICT(lib_id) DO UPDATE SET task_id=excluded.task_id, name=excluded.name, path=excluded.path, at=excluded.at"
+  ).run(
+    Number(libId),
+    String(info.taskId || ""),
+    String(info.name || ""),
+    String(info.path || ""),
+    Date.now()
+  );
+}
+
+export function downloadedIds() {
+  return db
+    .prepare("SELECT lib_id FROM downloads")
+    .all()
     .map((row) => row.lib_id);
 }
 

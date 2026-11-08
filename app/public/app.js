@@ -4,6 +4,10 @@ const state = {
   q: "",
   tags: new Set(),
   stores: new Set(),
+  priceMin: "",
+  priceMax: "",
+  durationMin: "",
+  durationMax: "",
   total: 0,
   pages: 1,
 };
@@ -73,12 +77,14 @@ function renderCard(item, meta) {
   const image = meta && meta.image ? meta.image : "";
   const categories = (meta && meta.categories) || [];
   const chips = categories
-    .slice(0, 3)
-    .map((category) => `<span class="chip">${esc(category.name)}</span>`)
+    .map(
+      (category, index) =>
+        `<span class="chip${index >= 3 ? " chip-extra" : ""}">${esc(category.name)}</span>`
+    )
     .join("");
   const more =
     categories.length > 3
-      ? `<span class="chip more">+${categories.length - 3}</span>`
+      ? `<button type="button" class="chip more" data-toggle-tags>+${categories.length - 3}</button>`
       : "";
   const store = (meta && meta.store) || "";
   const stateText = meta
@@ -86,7 +92,7 @@ function renderCard(item, meta) {
     : "正在获取截图 / 价格 / 分类…";
 
   return `
-    <article class="card" data-lib="${esc(item.libId || "")}" data-key="${esc(item.key)}">
+    <article class="card${item.downloaded ? " is-downloaded" : ""}" data-lib="${esc(item.libId || "")}" data-key="${esc(item.key)}">
       <a class="thumb" href="${esc(siteUrl(item, meta))}" target="_blank" rel="noreferrer">
         ${
           image
@@ -94,6 +100,7 @@ function renderCard(item, meta) {
             : `<div class="skeleton"></div>`
         }
         <span class="badge-id">#${esc(item.libId || "—")}</span>
+        ${item.downloaded ? `<span class="badge-downloaded">已下载</span>` : ""}
         ${price ? `<span class="price">${esc(price)}</span>` : ""}
       </a>
       <div class="card-body">
@@ -104,7 +111,7 @@ function renderCard(item, meta) {
         <div class="actions">
           <button class="download" data-lib="${esc(item.libId || "")}" ${
             item.dood ? "" : "disabled"
-          }>下载到 Gopeed</button>
+          }>${item.downloaded ? "再次下载" : "下载到 Gopeed"}</button>
           <a class="link" href="${esc(item.dood || "#")}" target="_blank" rel="noreferrer">Dood</a>
         </div>
       </div>
@@ -179,6 +186,7 @@ async function loadStats() {
     $("#stats").innerHTML = `
       <span><b>${data.withDood.toLocaleString()}</b> 条可下载记录</span>
       <span><b>${data.metaCached.toLocaleString()}</b> 条已采集</span>
+      ${data.downloaded ? `<span><b>${data.downloaded.toLocaleString()}</b> 条已下载</span>` : ""}
       ${data.failures ? `<span><b>${data.failures.toLocaleString()}</b> 条采集失败</span>` : ""}
     `;
     return data;
@@ -189,6 +197,7 @@ async function loadStats() {
 }
 
 const facetData = { tag: [], store: [] };
+const FACET_KINDS = ["tag", "store", "price", "duration"];
 let openFacetKind = null;
 let filterTimer = null;
 
@@ -197,13 +206,30 @@ function selectedSet(kind) {
 }
 
 function facetLabel(kind) {
-  return kind === "tag" ? "标签" : "Store";
+  return { tag: "标签", store: "Store", price: "价格", duration: "时长" }[kind];
 }
 
 function updateFacetButton(kind) {
-  const selected = selectedSet(kind);
   const button = document.querySelector(`#${kind}-btn`);
   if (!button) return;
+  if (kind === "price" || kind === "duration") {
+    const min = state[`${kind}Min`];
+    const max = state[`${kind}Max`];
+    const prefix = kind === "price" ? "$" : "";
+    const suffix = kind === "duration" ? " 分钟" : "";
+    let text = "全部";
+    if (min !== "" && max !== "") {
+      text = `${prefix}${min}–${prefix}${max}${suffix}`;
+    } else if (min !== "") {
+      text = `≥${prefix}${min}${suffix}`;
+    } else if (max !== "") {
+      text = `≤${prefix}${max}${suffix}`;
+    }
+    button.textContent = `${facetLabel(kind)}：${text}`;
+    button.classList.toggle("active", min !== "" || max !== "");
+    return;
+  }
+  const selected = selectedSet(kind);
   button.textContent = selected.size
     ? `${facetLabel(kind)}：${selected.size} 项`
     : `${facetLabel(kind)}：全部`;
@@ -286,7 +312,7 @@ function positionFacetPanel(kind) {
 }
 
 function closeFacets() {
-  for (const kind of ["tag", "store"]) {
+  for (const kind of FACET_KINDS) {
     const facet = document.querySelector(`#${kind}-facet`);
     const button = document.querySelector(`#${kind}-btn`);
     const panel = document.querySelector(`#${kind}-panel`);
@@ -309,7 +335,7 @@ function openFacet(kind) {
   facet.classList.add("open");
   button.setAttribute("aria-expanded", "true");
   openFacetKind = kind;
-  renderFacetOptions(kind);
+  if (kind === "tag" || kind === "store") renderFacetOptions(kind);
   positionFacetPanel(kind);
 }
 
@@ -321,39 +347,62 @@ function scheduleFilterReload() {
   }, 350);
 }
 
-for (const kind of ["tag", "store"]) {
+function clearFacet(kind) {
+  if (kind === "tag" || kind === "store") {
+    selectedSet(kind).clear();
+    for (const checkbox of document.querySelectorAll(
+      `#${kind}-options input[type="checkbox"]`
+    )) {
+      checkbox.checked = false;
+    }
+  } else {
+    state[`${kind}Min`] = "";
+    state[`${kind}Max`] = "";
+    document.querySelector(`#${kind}-min`).value = "";
+    document.querySelector(`#${kind}-max`).value = "";
+  }
+  updateFacetButton(kind);
+  scheduleFilterReload();
+}
+
+for (const kind of FACET_KINDS) {
   document.querySelector(`#${kind}-btn`).addEventListener("click", (event) => {
     event.stopPropagation();
     openFacet(kind);
   });
   document
-    .querySelector(`#${kind}-options`)
-    .addEventListener("change", (event) => {
-      const checkbox = event.target.closest('input[type="checkbox"]');
-      if (!checkbox) return;
-      if (checkbox.checked) selectedSet(kind).add(checkbox.value);
-      else selectedSet(kind).delete(checkbox.value);
-      updateFacetButton(kind);
-      scheduleFilterReload();
-    });
-  document
-    .querySelector(`#${kind}-search`)
-    .addEventListener("input", () => renderFacetOptions(kind));
-  document
     .querySelector(`#${kind}-clear`)
-    .addEventListener("click", () => {
-      selectedSet(kind).clear();
-      for (const checkbox of document.querySelectorAll(
-        `#${kind}-options input[type="checkbox"]`
-      )) {
-        checkbox.checked = false;
-      }
-      updateFacetButton(kind);
-      scheduleFilterReload();
-    });
+    .addEventListener("click", () => clearFacet(kind));
   document
     .querySelector(`#${kind}-done`)
     .addEventListener("click", () => closeFacets());
+
+  if (kind === "tag" || kind === "store") {
+    document
+      .querySelector(`#${kind}-options`)
+      .addEventListener("change", (event) => {
+        const checkbox = event.target.closest('input[type="checkbox"]');
+        if (!checkbox) return;
+        if (checkbox.checked) selectedSet(kind).add(checkbox.value);
+        else selectedSet(kind).delete(checkbox.value);
+        updateFacetButton(kind);
+        scheduleFilterReload();
+      });
+    document
+      .querySelector(`#${kind}-search`)
+      .addEventListener("input", () => renderFacetOptions(kind));
+  } else {
+    for (const bound of ["min", "max"]) {
+      document
+        .querySelector(`#${kind}-${bound}`)
+        .addEventListener("input", (event) => {
+          state[`${kind}${bound === "min" ? "Min" : "Max"}`] =
+            event.target.value.trim();
+          updateFacetButton(kind);
+          scheduleFilterReload();
+        });
+    }
+  }
 }
 
 document.addEventListener("click", (event) => {
@@ -395,6 +444,9 @@ async function load() {
   if (state.q) params.set("q", state.q);
   for (const tag of state.tags) params.append("tag", tag);
   for (const store of state.stores) params.append("store", store);
+  for (const key of ["priceMin", "priceMax", "durationMin", "durationMax"]) {
+    if (state[key] !== "") params.set(key, state[key]);
+  }
 
   try {
     const data = await api("/api/items?" + params.toString());
@@ -437,6 +489,22 @@ async function download(button) {
   button.textContent = "发送中…";
   try {
     const data = await api(`/api/download/${libId}`, { method: "POST" });
+    const card = button.closest(".card");
+    if (card) {
+      card.classList.add("is-downloaded");
+      const thumb = card.querySelector(".thumb");
+      if (thumb && !thumb.querySelector(".badge-downloaded")) {
+        thumb.insertAdjacentHTML(
+          "beforeend",
+          '<span class="badge-downloaded">已下载</span>'
+        );
+      }
+      const item = JSON.parse(card.dataset.item || "null");
+      if (item) {
+        item.downloaded = true;
+        card.dataset.item = JSON.stringify(item);
+      }
+    }
     toast(
       `已发送到 Gopeed\n${data.name}\n目录：${data.path}` +
         (data.warning ? `\n${data.warning}` : ""),
@@ -446,11 +514,22 @@ async function download(button) {
     toast(`下载发送失败：${err.message}`, true);
   } finally {
     button.disabled = false;
-    button.textContent = original;
+    const card = button.closest(".card");
+    button.textContent =
+      card && card.classList.contains("is-downloaded") ? "再次下载" : original;
   }
 }
 
 grid.addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-toggle-tags]");
+  if (toggle) {
+    const card = toggle.closest(".card");
+    if (!card) return;
+    const expanded = card.classList.toggle("tags-expanded");
+    const extra = card.querySelectorAll(".chip-extra").length;
+    toggle.textContent = expanded ? "收起" : `+${extra}`;
+    return;
+  }
   const button = event.target.closest(".download");
   if (button) {
     download(button);

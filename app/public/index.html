@@ -51,6 +51,36 @@
         </div>
       </div>
 
+      <div class="facet" id="price-facet">
+        <button type="button" class="facet-btn" id="price-btn" aria-expanded="false">价格：全部</button>
+        <div class="facet-panel" id="price-panel">
+          <div class="range-row">
+            <label>最低（USD）<input id="price-min" type="number" min="0" step="0.01" placeholder="0" /></label>
+            <label>最高（USD）<input id="price-max" type="number" min="0" step="0.01" placeholder="不限" /></label>
+          </div>
+          <p class="facet-hint">留空表示不限；仅统计已采集条目。</p>
+          <div class="facet-actions">
+            <button type="button" class="ghost" id="price-clear">清空</button>
+            <button type="button" class="primary" id="price-done">完成</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="facet" id="duration-facet">
+        <button type="button" class="facet-btn" id="duration-btn" aria-expanded="false">时长：全部</button>
+        <div class="facet-panel" id="duration-panel">
+          <div class="range-row">
+            <label>最短（分钟）<input id="duration-min" type="number" min="0" step="0.5" placeholder="0" /></label>
+            <label>最长（分钟）<input id="duration-max" type="number" min="0" step="0.5" placeholder="不限" /></label>
+          </div>
+          <p class="facet-hint">按分钟填写，可带小数；仅统计已采集条目。</p>
+          <div class="facet-actions">
+            <button type="button" class="ghost" id="duration-clear">清空</button>
+            <button type="button" class="primary" id="duration-done">完成</button>
+          </div>
+        </div>
+      </div>
+
       <select id="page-size">
         <option value="24">24 / 页</option>
         <option value="48">48 / 页</option>

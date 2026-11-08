@@ -313,6 +313,20 @@ input:focus, select:focus { border-color: var(--accent); }
   font-size: 11px;
 }
 
+.badge-downloaded {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  background: rgba(16, 185, 129, .92);
+  color: #052e22;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.card.is-downloaded { border-color: rgba(110, 231, 183, .45); }
+
 .card-body {
   display: flex;
   flex-direction: column;
@@ -355,7 +369,27 @@ input:focus, select:focus { border-color: var(--accent); }
   font-size: 11px;
 }
 
-.chip.more { color: var(--muted); }
+.card:not(.tags-expanded) .chip-extra { display: none; }
+
+.chip.more {
+  cursor: pointer;
+  color: var(--accent-2);
+}
+
+.chip.more:hover { border-color: var(--accent-2); }
+
+.range-row { display: flex; gap: 8px; }
+
+.range-row label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.range-row input { width: 100%; min-height: 38px; }
 
 .actions {
   display: flex;
@@ -554,6 +588,7 @@ hr {
   .facet-option { padding: 9px 6px; }
   .facet-name { font-size: 14px; }
   .facet-actions button { min-height: 40px; }
+  .range-row input { min-height: 42px; }
   .stats { width: 100%; font-size: 11px; gap: 8px; }
   .grid { padding: 10px 12px; gap: 12px; grid-template-columns: 1fr; }
   .card { min-height: 0; }

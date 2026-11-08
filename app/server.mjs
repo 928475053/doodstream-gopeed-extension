@@ -6,10 +6,13 @@ import { fileURLToPath } from "node:url";
 import {
   addFailure,
   buildFileName,
+  downloadedIds,
   failureCount,
   failureIds,
   folderFor,
   getMeta,
+  idsByDuration,
+  idsByPrice,
   idsByStores,
   idsByTagsAll,
   initMetaStore,
@@ -22,6 +25,7 @@ import {
   metaIds,
   missingImageRows,
   rebuildItemsFromExcel,
+  recordDownload,
   removeFailure,
   savePrefetchState,
   saveSettings,
@@ -64,6 +68,7 @@ rebuildItemIndex(items);
 
 let settings = loadSettings();
 initImageCache();
+const downloaded = new Set(downloadedIds());
 
 console.log(
   `[dood] loaded ${items.length} items, ${metaCount()} metadata, ${failureCount()} failures`
@@ -303,6 +308,7 @@ function itemView(item) {
     title: item.title,
     status: item.status,
     dood: item.dood,
+    downloaded: downloaded.has(item.libId),
     meta: m
       ? {
           title: m.title,
@@ -321,6 +327,13 @@ function itemView(item) {
   };
 }
 
+function numberParam(searchParams, name) {
+  const raw = searchParams.get(name);
+  if (raw == null || raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.max(0, value) : null;
+}
+
 function filterItems(searchParams) {
   const q = String(searchParams.get("q") || "").trim().toLowerCase();
   const tags = searchParams
@@ -333,6 +346,16 @@ function filterItems(searchParams) {
     .getAll("store")
     .map((value) => value.trim())
     .filter(Boolean);
+  let priceMin = numberParam(searchParams, "priceMin");
+  let priceMax = numberParam(searchParams, "priceMax");
+  if (priceMin != null && priceMax != null && priceMin > priceMax) {
+    [priceMin, priceMax] = [priceMax, priceMin];
+  }
+  let durationMin = numberParam(searchParams, "durationMin");
+  let durationMax = numberParam(searchParams, "durationMax");
+  if (durationMin != null && durationMax != null && durationMin > durationMax) {
+    [durationMin, durationMax] = [durationMax, durationMin];
+  }
 
   let result = items;
   if (q) {
@@ -349,6 +372,19 @@ function filterItems(searchParams) {
   }
   if (tags.length > 0) {
     const ids = new Set(idsByTagsAll(tags));
+    result = result.filter((item) => ids.has(item.libId));
+  }
+  if (priceMin != null || priceMax != null) {
+    const ids = new Set(idsByPrice(priceMin, priceMax));
+    result = result.filter((item) => ids.has(item.libId));
+  }
+  if (durationMin != null || durationMax != null) {
+    const ids = new Set(
+      idsByDuration(
+        durationMin == null ? null : Math.round(durationMin * 60),
+        durationMax == null ? null : Math.round(durationMax * 60)
+      )
+    );
     result = result.filter((item) => ids.has(item.libId));
   }
   return result;
@@ -382,6 +418,7 @@ async function handleApi(req, res, url) {
       withDood: items.filter((item) => item.dood).length,
       metaCached: metaCount(),
       failures: failureCount(),
+      downloaded: downloaded.size,
       prefetch: prefetchStatus(),
       settings: {
         gopeedUrl: settings.gopeedUrl,
@@ -558,12 +595,19 @@ async function handleApi(req, res, url) {
         name: fileName,
         path: downloadPath,
       });
+      recordDownload(libId, {
+        taskId,
+        name: fileName,
+        path: downloadPath,
+      });
+      downloaded.add(libId);
       sendJson(res, 200, {
         ok: true,
         taskId,
         name: fileName,
         path: downloadPath,
         folder,
+        downloaded: true,
         warning: metaWarning,
       });
     } catch (err) {

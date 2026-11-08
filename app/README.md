@@ -9,7 +9,9 @@
   - 截图（og:image + 多张预览图）
   - 价格、Store、分类标签、分辨率、时长、简介
 - 卡片式浏览：搜索、分页，按 ID 倒序（新内容在前）
-- 筛选：Store 和标签都支持多选；Store 多选为任一匹配，标签多选为同时包含（AND），两个维度之间同时满足
+- 筛选：Store / 标签多选，外加价格区间（USD）和时长区间（分钟）；所有条件同时满足
+- 下载成功后卡片显示「已下载」标记，重启后仍保留
+- 标签超过 3 个时折叠为 `+N`，点击可展开全部，再点「收起」恢复
 - 手机端适配：单列卡片、全屏设置面板、底部翻页、更大的触控区域
 - Excel 只在首次启动或手动「强制重新读取 Excel」时解析，之后直接使用 `items.json`
 - 元数据懒加载 + SQLite 持久化；后台采集支持并发、断点续采、进度持久化和失败重试
@@ -119,10 +121,14 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
   - 目录：`/app/Downloads/NORTHERN SPANKING FILMS`
   - 路径是 **Gopeed 容器内路径**，不是宿主机路径。
 - 标签筛选只统计已采集的条目；未采集的条目在滚动时自动补全。
-- Store / 标签筛选说明：
+- Store / 标签 / 价格 / 时长筛选说明：
   - 多个 Store：任一匹配（OR）
   - 多个标签：同时包含（AND）
-  - Store 与标签之间：同时满足（AND）
+  - 价格：最低 / 最高 USD，留空不限
+  - 时长：最短 / 最长分钟，可带小数，留空不限
+  - 各维度之间：同时满足（AND）
+- 点「下载到 Gopeed」成功后，卡片右上角出现「已下载」，按钮变为「再次下载」；记录保存在 SQLite，重启后仍显示。
+- 卡片标签超过 3 个时显示 `+N`，点击展开全部标签，再点「收起」恢复折叠。
 
 ## 后台采集
 
@@ -146,9 +152,10 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 44,779 条元数据不再使用单个 `meta.json` 全量重写，改为 Node 内置 SQLite（`node:sqlite`），保存于 `/data/library.db`：
 
-- `meta`：每条元数据按 ID 增量 upsert
+- `meta`：每条元数据按 ID 增量 upsert，并冗余 `price` / `duration_seconds` 数值列用于范围筛选
 - `meta_tags`：标签索引，用于筛选和统计
 - `meta_stores`：Store 索引，用于筛选和统计
+- `downloads`：已成功发送到 Gopeed 的条目，用于「已下载」标记
 - `failures`：采集失败记录，供「重试失败」使用
 - `prefetch_progress`：后台采集进度（按采集/重试分别保存），重启后继续显示
 
@@ -168,7 +175,7 @@ sh -c "apk add --no-cache curl unzip >/dev/null && curl -fsSL https://github.com
 
 ## API
 
-- `GET /api/items?q=&tag=&tag=&store=&store=&page=&pageSize=`
+- `GET /api/items?q=&tag=&tag=&store=&store=&priceMin=&priceMax=&durationMin=&durationMax=&page=&pageSize=`
 - `POST /api/items/reload`（强制重新读取 Excel）
 - `GET /api/meta/:id`（`?refresh=1` 强制刷新）
 - `GET /api/image/:id`（本地图片缓存，未命中时下载并落盘）
