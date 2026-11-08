@@ -562,6 +562,39 @@ $("#page-size").addEventListener("change", (event) => {
   load();
 });
 
+function resetFilters() {
+  clearTimeout(searchTimer);
+  clearTimeout(filterTimer);
+  state.q = "";
+  state.tags.clear();
+  state.stores.clear();
+  state.priceMin = "";
+  state.priceMax = "";
+  state.durationMin = "";
+  state.durationMax = "";
+  state.page = 1;
+  $("#search").value = "";
+  for (const kind of ["tag", "store"]) {
+    const search = document.querySelector(`#${kind}-search`);
+    if (search) search.value = "";
+    for (const checkbox of document.querySelectorAll(
+      `#${kind}-options input[type="checkbox"]`
+    )) {
+      checkbox.checked = false;
+    }
+    renderFacetOptions(kind);
+  }
+  for (const kind of ["price", "duration"]) {
+    document.querySelector(`#${kind}-min`).value = "";
+    document.querySelector(`#${kind}-max`).value = "";
+    updateFacetButton(kind);
+  }
+  closeFacets();
+  load();
+}
+
+$("#reset-filters").addEventListener("click", resetFilters);
+
 $("#prev").addEventListener("click", () => {
   if (state.page > 1) {
     state.page--;

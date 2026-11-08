@@ -583,6 +583,7 @@ hr {
   .toolbar { padding: 8px 12px; gap: 8px; }
   .filters { width: 100%; gap: 8px; }
   .filters select { flex: 1 1 140px; min-width: 0; }
+  .filters > button { min-height: 42px; }
   .facet { flex: 1 1 140px; }
   .facet-btn { width: 100%; min-height: 42px; }
   .facet-option { padding: 9px 6px; }
